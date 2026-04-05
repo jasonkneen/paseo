@@ -2,7 +2,7 @@ import { View, Pressable, Text, ActivityIndicator, Platform } from "react-native
 import { useState, useEffect, useRef, useCallback } from "react";
 import { StyleSheet, UnistylesRuntime, useUnistyles } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
-import { ArrowUp, Square, Pencil, AudioLines } from "lucide-react-native";
+import { ArrowUp, Square, Pencil, AudioLines, MousePointer2, X } from "lucide-react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FOOTER_HEIGHT, MAX_CONTENT_WIDTH } from "@/constants/layout";
@@ -47,6 +47,10 @@ import { useKeyboardShiftStyle } from "@/hooks/use-keyboard-shift-style";
 import { useKeyboardActionHandler } from "@/hooks/use-keyboard-action-handler";
 import type { KeyboardActionDefinition } from "@/keyboard/keyboard-action-dispatcher";
 import { submitAgentInput } from "@/components/agent-input-submit";
+import {
+  useElementContextStore,
+  type ElementContextChip,
+} from "@/stores/browser-element-selection";
 
 type QueuedMessage = {
   id: string;
@@ -88,6 +92,7 @@ interface AgentInputAreaProps {
 }
 
 const EMPTY_ARRAY: readonly QueuedMessage[] = [];
+const EMPTY_CHIPS: ElementContextChip[] = [];
 const DESKTOP_MESSAGE_PLACEHOLDER = "Message the agent, tag @files, or use /commands and /skills";
 const MOBILE_MESSAGE_PLACEHOLDER = "Message, @files, /commands";
 
@@ -210,6 +215,16 @@ export function AgentInputArea({
   useEffect(() => {
     onAddImages?.(addImages);
   }, [addImages, onAddImages]);
+
+  const handleFocusChange = useCallback(
+    (focused: boolean) => {
+      setIsMessageInputFocused(focused);
+      if (focused) {
+        onAttentionInputFocus?.();
+      }
+    },
+    [onAttentionInputFocus],
+  );
 
   const focusInput = useCallback(() => {
     if (Platform.OS !== "web") return;
@@ -364,11 +379,21 @@ export function AgentInputArea({
     });
   }
 
+  const agentContextKey = `${serverId}:${agentId}`;
+  const elementChips = useElementContextStore((s) => s.chipsByAgent[agentContextKey]) ?? EMPTY_CHIPS;
+
   function handleSubmit(payload: MessagePayload) {
     if (blurOnSubmit) {
       messageInputRef.current?.blur();
     }
-    void sendMessageWithContent(payload.text, payload.images, payload.forceSend);
+    // Prepend element context chips to the message
+    let finalText = payload.text;
+    if (elementChips.length > 0) {
+      const contextBlock = elementChips.map((c) => c.formatted).join("\n\n");
+      finalText = contextBlock + (finalText.trim() ? "\n\n" + finalText : "");
+      useElementContextStore.getState().clearChips(agentContextKey);
+    }
+    void sendMessageWithContent(finalText, payload.images, payload.forceSend);
   }
 
   async function handlePickImage() {
@@ -695,6 +720,37 @@ export function AgentInputArea({
               </View>
             )}
 
+            {/* Element context chips from browser selector */}
+            {elementChips.length > 0 && (
+              <View style={styles.elementChipsRow}>
+                {elementChips.map((chip) => (
+                  <View key={chip.id} style={styles.elementChip}>
+                    <MousePointer2 size={12} color={theme.colors.accent} />
+                    <Text numberOfLines={1} style={styles.elementChipTag}>
+                      {`<${chip.tag}>`}
+                    </Text>
+                    <Text numberOfLines={1} style={styles.elementChipText}>
+                      {chip.text || chip.selector}
+                    </Text>
+                    {chip.reactSource?.fileName && (
+                      <Text numberOfLines={1} style={styles.elementChipSource}>
+                        {chip.reactSource.componentName ?? chip.reactSource.fileName.split("/").pop()}
+                      </Text>
+                    )}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove element context"
+                      hitSlop={6}
+                      onPress={() => useElementContextStore.getState().removeChip(agentContextKey, chip.id)}
+                      style={styles.elementChipRemove}
+                    >
+                      <X size={10} color={theme.colors.foregroundMuted} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {/* MessageInput handles everything: text, dictation, attachments, all buttons */}
             <MessageInput
               ref={messageInputRef}
@@ -725,12 +781,7 @@ export function AgentInputArea({
               onSelectionChange={(selection) => {
                 setCursorIndex(selection.start);
               }}
-              onFocusChange={(focused) => {
-                setIsMessageInputFocused(focused);
-                if (focused) {
-                  onAttentionInputFocus?.();
-                }
-              }}
+              onFocusChange={handleFocusChange}
               onHeightChange={onComposerHeightChange}
             />
           </View>
@@ -860,5 +911,48 @@ const styles = StyleSheet.create(((theme: Theme) => ({
   sendErrorText: {
     color: theme.colors.palette.red[500],
     fontSize: theme.fontSize.sm,
+  },
+  elementChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 4,
+    paddingBottom: 6,
+  },
+  elementChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    height: 24,
+    paddingLeft: 8,
+    paddingRight: 4,
+    borderRadius: 12,
+    backgroundColor: `${String(theme.colors.accent)}15`,
+    borderWidth: 1,
+    borderColor: `${String(theme.colors.accent)}30`,
+  },
+  elementChipTag: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.colors.accent,
+    maxWidth: 80,
+  },
+  elementChipText: {
+    fontSize: 11,
+    color: theme.colors.foreground,
+    maxWidth: 150,
+  },
+  elementChipSource: {
+    fontSize: 10,
+    color: theme.colors.foregroundMuted,
+    maxWidth: 120,
+  },
+  elementChipRemove: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 2,
   },
 })) as any) as Record<string, any>;

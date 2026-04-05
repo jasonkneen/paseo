@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useIsFocused } from "@react-navigation/native";
@@ -20,6 +21,8 @@ import {
   Copy,
   Ellipsis,
   EllipsisVertical,
+  AppWindow,
+  LayoutDashboard,
   PanelRight,
   RotateCw,
   SquarePen,
@@ -46,6 +49,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ExplorerSidebar } from "@/components/explorer-sidebar";
 import { SplitContainer } from "@/components/split-container";
+import { WorkspaceCanvasSurface } from "@/components/workspace-canvas-surface";
 import { SourceControlPanelIcon } from "@/components/icons/source-control-panel-icon";
 import { WorkspaceGitActions } from "@/screens/workspace/workspace-git-actions";
 import { ExplorerSidebarAnimationProvider } from "@/contexts/explorer-sidebar-animation-context";
@@ -82,6 +86,7 @@ import { applyArchivedAgentCloseResults, useArchiveAgent } from "@/hooks/use-arc
 import { useStableEvent } from "@/hooks/use-stable-event";
 import { buildProviderCommand } from "@/utils/provider-command-templates";
 import { generateDraftId } from "@/stores/draft-keys";
+import { createWorkspaceBrowser, useBrowserStore } from "@/stores/browser-store";
 import {
   WorkspaceTabPresentationResolver,
   WorkspaceTabIcon,
@@ -93,6 +98,7 @@ import {
 } from "@/screens/workspace/workspace-desktop-tabs-row";
 import { buildWorkspaceTabMenuEntries } from "@/screens/workspace/workspace-tab-menu";
 import type { WorkspaceTabDescriptor } from "@/screens/workspace/workspace-tabs-types";
+import { WorkspaceActionsMenu } from "@/screens/workspace/workspace-actions-menu";
 import {
   resolveWorkspaceHeader,
   shouldRenderMissingWorkspaceDescriptor,
@@ -119,8 +125,14 @@ import { isCompactFormFactor, supportsDesktopPaneSplits } from "@/constants/layo
 
 const TERMINALS_QUERY_STALE_TIME = 5_000;
 const NEW_TAB_AGENT_OPTION_ID = "__new_tab_agent__";
+const NEW_TAB_BROWSER_OPTION_ID = "__new_tab_browser__";
+const buildWorkspaceCanvasModeStorageKey = (serverId: string, workspaceId: string) =>
+  `paseo:workspace-canvas-mode:${serverId}:${workspaceId}`;
 const NEW_TAB_TERMINAL_OPTION_ID = "__new_tab_terminal__";
-type NewTabOptionId = typeof NEW_TAB_AGENT_OPTION_ID | typeof NEW_TAB_TERMINAL_OPTION_ID;
+type NewTabOptionId =
+  | typeof NEW_TAB_AGENT_OPTION_ID
+  | typeof NEW_TAB_BROWSER_OPTION_ID
+  | typeof NEW_TAB_TERMINAL_OPTION_ID;
 const EMPTY_UI_TABS: WorkspaceTab[] = [];
 const EMPTY_PINNED_AGENT_IDS = new Set<string>();
 const EMPTY_SET = new Set<string>();
@@ -150,6 +162,9 @@ function getFallbackTabOptionLabel(tab: WorkspaceTabDescriptor): string {
   if (tab.target.kind === "draft") {
     return "New Agent";
   }
+  if (tab.target.kind === "browser") {
+    return "Browser";
+  }
   if (tab.target.kind === "terminal") {
     return "Terminal";
   }
@@ -165,6 +180,9 @@ function getFallbackTabOptionDescription(tab: WorkspaceTabDescriptor): string {
   }
   if (tab.target.kind === "agent") {
     return "Agent";
+  }
+  if (tab.target.kind === "browser") {
+    return "Browser";
   }
   if (tab.target.kind === "terminal") {
     return "Terminal";
@@ -1038,6 +1056,15 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
     () => focusedPaneTabState.tabs.map((tab) => tab.descriptor),
     [focusedPaneTabState.tabs],
   );
+  const canvasTabs = useMemo<WorkspaceTabDescriptor[]>(
+    () => uiTabs.map((tab) => ({
+      key: tab.tabId,
+      tabId: tab.tabId,
+      kind: tab.target.kind,
+      target: tab.target,
+    })),
+    [uiTabs],
+  );
 
   const navigateToTabId = useCallback(
     function navigateToTabId(tabId: string) {
@@ -1145,6 +1172,26 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
     openWorkspaceDraftTab();
   }, [openWorkspaceDraftTab]);
 
+  const handleCreateBrowser = useCallback(
+    (input?: { paneId?: string; initialUrl?: string }) => {
+      if (!persistenceKey) {
+        return;
+      }
+      if (input?.paneId) {
+        focusWorkspacePane(persistenceKey, input.paneId);
+      }
+      const browser = createWorkspaceBrowser({ initialUrl: input?.initialUrl });
+      const tabId = openWorkspaceTab(persistenceKey, {
+        kind: "browser",
+        browserId: browser.browserId,
+      });
+      if (tabId) {
+        navigateToTabId(tabId);
+      }
+    },
+    [focusWorkspacePane, navigateToTabId, openWorkspaceTab, persistenceKey],
+  );
+
   const handleCreateTerminal = useCallback(
     (input?: { paneId?: string }) => {
       if (createTerminalMutation.isPending) {
@@ -1172,11 +1219,19 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
       }
       if (selection.optionId === NEW_TAB_AGENT_OPTION_ID) {
         handleCreateDraftTab();
+      } else if (selection.optionId === NEW_TAB_BROWSER_OPTION_ID) {
+        handleCreateBrowser({ paneId: selection.paneId });
       } else if (selection.optionId === NEW_TAB_TERMINAL_OPTION_ID) {
         handleCreateTerminal({ paneId: selection.paneId });
       }
     },
-    [focusWorkspacePane, handleCreateDraftTab, handleCreateTerminal, persistenceKey],
+    [
+      focusWorkspacePane,
+      handleCreateBrowser,
+      handleCreateDraftTab,
+      handleCreateTerminal,
+      persistenceKey,
+    ],
   );
 
   const handleCreateDraftSplit = useCallback(
@@ -1301,6 +1356,11 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
       }
       if (tab.target.kind === "agent") {
         await handleCloseAgentTab({ tabId, agentId: tab.target.agentId });
+        return;
+      }
+      if (tab.target.kind === "browser") {
+        useBrowserStore.getState().removeBrowser(tab.target.browserId);
+        handleCloseDraftOrFileTab(tabId);
         return;
       }
       handleCloseDraftOrFileTab(tabId);
@@ -1720,6 +1780,44 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
     }
     document.title = "Workspace";
   }, [activeTabDescriptor]);
+  const [isCanvasMode, setIsCanvasMode] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCanvasMode = async () => {
+      if (!normalizedServerId || !normalizedWorkspaceId || isMobile) {
+        return;
+      }
+      try {
+        const raw = await AsyncStorage.getItem(
+          buildWorkspaceCanvasModeStorageKey(normalizedServerId, normalizedWorkspaceId),
+        );
+        if (cancelled || raw == null) {
+          return;
+        }
+        setIsCanvasMode(raw === "1");
+      } catch {
+        // ignore persisted canvas mode read failures
+      }
+    };
+
+    void loadCanvasMode();
+    return () => {
+      cancelled = true;
+    };
+  }, [isMobile, normalizedServerId, normalizedWorkspaceId]);
+
+  useEffect(() => {
+    if (!normalizedServerId || !normalizedWorkspaceId || isMobile) {
+      return;
+    }
+    void AsyncStorage.setItem(
+      buildWorkspaceCanvasModeStorageKey(normalizedServerId, normalizedWorkspaceId),
+      isCanvasMode ? "1" : "0",
+    );
+  }, [isCanvasMode, isMobile, normalizedServerId, normalizedWorkspaceId]);
+
   const buildPaneContentModel = useCallback(
     (input: {
       tab: WorkspaceTabDescriptor;
@@ -1984,62 +2082,37 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
                       </Text>
                     </>
                   )}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      testID="workspace-header-menu-trigger"
-                      style={styles.headerActionButton}
-                      accessibilityRole="button"
-                      accessibilityLabel="Workspace actions"
-                    >
-                      {({ hovered, open }) => {
-                        const Icon = isMobile ? EllipsisVertical : Ellipsis;
-                        return (
-                          <Icon
-                            size={theme.iconSize.md}
-                            color={
-                              hovered || open
-                                ? theme.colors.foreground
-                                : theme.colors.foregroundMuted
-                            }
-                          />
-                        );
-                      }}
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" width={220} testID="workspace-header-menu">
-                      <DropdownMenuItem
-                        testID="workspace-header-new-agent"
-                        leading={<SquarePen size={16} color={theme.colors.foregroundMuted} />}
-                        onSelect={handleCreateDraftTab}
-                      >
-                        New agent
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        testID="workspace-header-new-terminal"
-                        leading={<SquareTerminal size={16} color={theme.colors.foregroundMuted} />}
-                        disabled={createTerminalMutation.isPending}
-                        onSelect={handleCreateTerminal}
-                      >
-                        New terminal
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        testID="workspace-header-copy-path"
-                        leading={<Copy size={16} color={theme.colors.foregroundMuted} />}
-                        disabled={!isAbsolutePath(normalizedWorkspaceId)}
-                        onSelect={handleCopyWorkspacePath}
-                      >
-                        Copy workspace path
-                      </DropdownMenuItem>
-                      {currentBranchName ? (
-                        <DropdownMenuItem
-                          testID="workspace-header-copy-branch-name"
-                          leading={<Copy size={16} color={theme.colors.foregroundMuted} />}
-                          onSelect={handleCopyBranchName}
-                        >
-                          Copy branch name
-                        </DropdownMenuItem>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <WorkspaceActionsMenu
+                    triggerTestID="workspace-header-menu-trigger"
+                    menuTestID="workspace-header-menu"
+                    newAgentTestID="workspace-header-new-agent"
+                    newBrowserTestID="workspace-header-new-browser"
+                    newTerminalTestID="workspace-header-new-terminal"
+                    copyPathTestID="workspace-header-copy-path"
+                    copyBranchNameTestID="workspace-header-copy-branch-name"
+                    onCreateAgent={handleCreateDraftTab}
+                    onCreateBrowser={handleCreateBrowser}
+                    onCreateTerminal={handleCreateTerminal}
+                    onCopyWorkspacePath={handleCopyWorkspacePath}
+                    onCopyBranchName={currentBranchName ? handleCopyBranchName : null}
+                    canCopyWorkspacePath={isAbsolutePath(normalizedWorkspaceId)}
+                    createTerminalPending={createTerminalMutation.isPending}
+                    align="start"
+                  >
+                    {({ hovered, open }) => {
+                      const Icon = isMobile ? EllipsisVertical : Ellipsis;
+                      return (
+                        <Icon
+                          size={theme.iconSize.md}
+                          color={
+                            hovered || open
+                              ? theme.colors.foreground
+                              : theme.colors.foregroundMuted
+                          }
+                        />
+                      );
+                    }}
+                  </WorkspaceActionsMenu>
                 </View>
               </>
             }
@@ -2107,6 +2180,34 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
                       </TooltipContent>
                     </Tooltip>
                   </>
+                ) : null}
+                {!isMobile ? (
+                  <HeaderToggleButton
+                    testID="workspace-canvas-toggle"
+                    onPress={() => setIsCanvasMode((current) => !current)}
+                    tooltipLabel={isCanvasMode ? "Switch to docked workspace" : "Switch to canvas workspace"}
+                    tooltipKeys={[]}
+                    tooltipSide="left"
+                    style={styles.headerActionButton}
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityLabel={isCanvasMode ? "Switch to docked workspace" : "Switch to canvas workspace"}
+                    accessibilityState={{ expanded: isCanvasMode }}
+                  >
+                    {({ hovered }) => {
+                      const Icon = isCanvasMode ? AppWindow : LayoutDashboard;
+                      return (
+                        <Icon
+                          size={theme.iconSize.md}
+                          color={
+                            hovered
+                              ? theme.colors.foreground
+                              : theme.colors.foregroundMuted
+                          }
+                        />
+                      );
+                    }}
+                  </HeaderToggleButton>
                 ) : null}
                 {!isMobile && !isGitCheckout ? (
                   <HeaderToggleButton
@@ -2185,7 +2286,7 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
             />
           ) : null}
 
-          {shouldRenderDesktopPaneFallback ? (
+          {shouldRenderDesktopPaneFallback && !isCanvasMode ? (
             <WorkspaceDesktopTabsRow
               paneId={focusedPaneId ?? undefined}
               isFocused
@@ -2219,7 +2320,23 @@ function WorkspaceScreenContent({ serverId, workspaceId }: WorkspaceScreenProps)
               </GestureDetector>
             ) : (
               <View style={styles.content}>
-                {canRenderDesktopPaneSplits && workspaceLayout && persistenceKey ? (
+                {isCanvasMode ? (
+                  <WorkspaceCanvasSurface
+                    tabs={canvasTabs}
+                    activeTabId={activeTabDescriptor?.tabId ?? null}
+                    normalizedServerId={normalizedServerId}
+                    normalizedWorkspaceId={normalizedWorkspaceId}
+                    buildPaneContentModel={buildDesktopPaneContentModel}
+                    onCloseTab={handleCloseTabById}
+                    onCreateAgent={handleCreateDraftTab}
+                    onCreateBrowser={handleCreateBrowser}
+                    onCreateTerminal={handleCreateTerminal}
+                    onCopyWorkspacePath={handleCopyWorkspacePath}
+                    onCopyBranchName={currentBranchName ? handleCopyBranchName : null}
+                    canCopyWorkspacePath={isAbsolutePath(normalizedWorkspaceId)}
+                    createTerminalPending={createTerminalMutation.isPending}
+                  />
+                ) : canRenderDesktopPaneSplits && workspaceLayout && persistenceKey ? (
                   <SplitContainer
                     layout={workspaceLayout}
                     focusModeEnabled={isFocusModeEnabled && !isMobile}
@@ -2338,6 +2455,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing[2],
     borderRadius: theme.borderRadius.lg,
   },
+
   sourceControlButton: {
     flexDirection: "row",
     alignItems: "center",
