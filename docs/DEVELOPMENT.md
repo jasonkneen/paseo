@@ -23,6 +23,23 @@ PASEO_HOME=~/.paseo-blue npm run dev
 
 - `PASEO_HOME` — path for runtime state (agents, sockets, etc.). Defaults to `~/.paseo`.
 
+If you want a predictable side-by-side dev instance instead of the portless setup, use the blue profile:
+
+```bash
+npm run dev:blue
+```
+
+That uses:
+- `PASEO_HOME=~/.paseo-blue`
+- daemon `127.0.0.1:7777`
+- Expo dev server `http://localhost:8082`
+
+To open the desktop wrapper against that dev server:
+
+```bash
+npm run dev:blue:desktop
+```
+
 ### Default ports
 
 In the main checkout:
