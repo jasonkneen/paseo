@@ -2,26 +2,27 @@ import { expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
+import { createNodeWebSocketFactory, type NodeWebSocketFactory } from "./node-ws-factory";
 import { buildHostWorkspaceRoute } from "../../src/utils/host-routes";
 
 const NEAR_BOTTOM_THRESHOLD_PX = 72;
 
-export type ScrollMetrics = {
+export interface ScrollMetrics {
   offsetY: number;
   contentHeight: number;
   viewportHeight: number;
   distanceFromBottom: number;
-};
+}
 
-export type SeededAgent = {
+export interface SeededAgent {
   id: string;
   title: string;
   expectedTailText: string;
   url: string;
   workspaceUrl: string;
-};
+}
 
-export type DaemonClientInstance = {
+export interface DaemonClientInstance {
   connect(): Promise<void>;
   close(): Promise<void>;
   createAgent(options: {
@@ -35,7 +36,7 @@ export type DaemonClientInstance = {
   }): Promise<{ id: string }>;
   sendAgentMessage(agentId: string, text: string): Promise<void>;
   waitForFinish(agentId: string, timeout?: number): Promise<{ status: string }>;
-};
+}
 
 function getDaemonWsUrl(): string {
   const daemonPort = process.env.E2E_DAEMON_PORT;
@@ -83,33 +84,34 @@ export function createReplyTurn(label: string): {
   };
 }
 
+interface DaemonClientConfig {
+  url: string;
+  clientId: string;
+  clientType: "cli";
+  webSocketFactory?: NodeWebSocketFactory;
+}
+
 async function loadDaemonClientConstructor(): Promise<
-  new (config: {
-    url: string;
-    clientId: string;
-    clientType: "cli";
-  }) => DaemonClientInstance
+  new (config: DaemonClientConfig) => DaemonClientInstance
 > {
-  const repoRoot = path.resolve(process.cwd(), "../..");
+  const repoRoot = path.resolve(__dirname, "../../../../");
   const moduleUrl = pathToFileURL(
     path.join(repoRoot, "packages/server/dist/server/server/exports.js"),
   ).href;
   const mod = (await import(moduleUrl)) as {
-    DaemonClient: new (config: {
-      url: string;
-      clientId: string;
-      clientType: "cli";
-    }) => DaemonClientInstance;
+    DaemonClient: new (config: DaemonClientConfig) => DaemonClientInstance;
   };
   return mod.DaemonClient;
 }
 
 export async function connectDaemonClient(): Promise<DaemonClientInstance> {
   const DaemonClient = await loadDaemonClientConstructor();
+  const webSocketFactory = createNodeWebSocketFactory();
   const client = new DaemonClient({
     url: getDaemonWsUrl(),
     clientId: `app-e2e-${randomUUID()}`,
     clientType: "cli",
+    webSocketFactory,
   });
   await client.connect();
   return client;
@@ -127,7 +129,7 @@ export async function seedBottomAnchorAgent(input: {
   const lineCount = Math.max(14, input.lineCount ?? 14);
   const created = await input.client.createAgent({
     provider: "codex",
-    model: "gpt-5.1-codex-mini",
+    model: "gpt-5.4-mini",
     thinkingOptionId: "low",
     modeId: "full-access",
     cwd: input.cwd,

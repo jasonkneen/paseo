@@ -1,5 +1,4 @@
-import { Command } from "commander";
-import { createRequire } from "node:module";
+import { Command, Option } from "commander";
 import { createAgentCommand } from "./commands/agent/index.js";
 import { createDaemonCommand } from "./commands/daemon/index.js";
 import { createChatCommand } from "./commands/chat/index.js";
@@ -23,6 +22,7 @@ import { addInspectOptions, runInspectCommand } from "./commands/agent/inspect.j
 import { addWaitOptions, runWaitCommand } from "./commands/agent/wait.js";
 import { addArchiveOptions, runArchiveCommand } from "./commands/agent/archive.js";
 import { addAttachOptions, runAttachCommand } from "./commands/agent/attach.js";
+import { addImportOptions, runImportCommand } from "./commands/agent/import.js";
 import { withOutput } from "./output/index.js";
 import { onboardCommand } from "./commands/onboard.js";
 import {
@@ -30,22 +30,15 @@ import {
   addJsonAndDaemonHostOptions,
   addJsonOption,
 } from "./utils/command-options.js";
-
-const require = createRequire(import.meta.url);
-
-type CliPackageJson = {
-  version?: unknown;
-};
-
-function resolveCliVersion(): string {
-  const packageJson = require("../package.json") as CliPackageJson;
-  if (typeof packageJson.version === "string" && packageJson.version.trim().length > 0) {
-    return packageJson.version.trim();
-  }
-  throw new Error("Unable to resolve @getpaseo/cli version from package.json.");
-}
+import { resolveCliVersion } from "./version.js";
 
 const VERSION = resolveCliVersion();
+
+function resolveHostnamesOption(hostnames: unknown, allowedHosts: unknown): string | undefined {
+  if (typeof hostnames === "string") return hostnames;
+  if (typeof allowedHosts === "string") return allowedHosts;
+  return undefined;
+}
 
 export function createCli(): Command {
   const program = new Command();
@@ -62,45 +55,43 @@ export function createCli(): Command {
     .option("--no-color", "disable colored output");
 
   // Primary agent commands (top-level)
-  addJsonAndDaemonHostOptions(
-    addLsOptions(program.command("ls")),
-  ).action(withOutput(runLsCommand));
+  addJsonAndDaemonHostOptions(addLsOptions(program.command("ls"))).action(withOutput(runLsCommand));
 
-  addJsonAndDaemonHostOptions(
-    addRunOptions(program.command("run")),
-  ).action(withOutput(runRunCommand));
+  addJsonAndDaemonHostOptions(addRunOptions(program.command("run"))).action(
+    withOutput(runRunCommand),
+  );
 
-  addDaemonHostOption(
-    addAttachOptions(program.command("attach")),
-  ).action(runAttachCommand);
+  addJsonAndDaemonHostOptions(addImportOptions(program.command("import"))).action(
+    withOutput(runImportCommand),
+  );
 
-  addDaemonHostOption(
-    addLogsOptions(program.command("logs")),
-  ).action(runLogsCommand);
+  addDaemonHostOption(addAttachOptions(program.command("attach"))).action(runAttachCommand);
 
-  addJsonAndDaemonHostOptions(
-    addStopOptions(program.command("stop")),
-  ).action(withOutput(runStopCommand));
+  addDaemonHostOption(addLogsOptions(program.command("logs"))).action(runLogsCommand);
 
-  addJsonAndDaemonHostOptions(
-    addDeleteOptions(program.command("delete")),
-  ).action(withOutput(runDeleteCommand));
+  addJsonAndDaemonHostOptions(addStopOptions(program.command("stop"))).action(
+    withOutput(runStopCommand),
+  );
 
-  addJsonAndDaemonHostOptions(
-    addSendOptions(program.command("send")),
-  ).action(withOutput(runSendCommand));
+  addJsonAndDaemonHostOptions(addDeleteOptions(program.command("delete"))).action(
+    withOutput(runDeleteCommand),
+  );
 
-  addJsonAndDaemonHostOptions(
-    addInspectOptions(program.command("inspect")),
-  ).action(withOutput(runInspectCommand));
+  addJsonAndDaemonHostOptions(addSendOptions(program.command("send"))).action(
+    withOutput(runSendCommand),
+  );
 
-  addJsonAndDaemonHostOptions(
-    addWaitOptions(program.command("wait")),
-  ).action(withOutput(runWaitCommand));
+  addJsonAndDaemonHostOptions(addInspectOptions(program.command("inspect"))).action(
+    withOutput(runInspectCommand),
+  );
 
-  addJsonAndDaemonHostOptions(
-    addArchiveOptions(program.command("archive")),
-  ).action(withOutput(runArchiveCommand));
+  addJsonAndDaemonHostOptions(addWaitOptions(program.command("wait"))).action(
+    withOutput(runWaitCommand),
+  );
+
+  addJsonAndDaemonHostOptions(addArchiveOptions(program.command("archive"))).action(
+    withOutput(runArchiveCommand),
+  );
 
   // Top-level local daemon shortcuts
   program.addCommand(onboardCommand());
@@ -130,10 +121,22 @@ export function createCli(): Command {
     .option("--no-relay", "Disable relay on restarted daemon")
     .option("--no-mcp", "Disable Agent MCP on restarted daemon")
     .option(
-      "--allowed-hosts <hosts>",
-      'Comma-separated Host allowlist values (example: "localhost,.example.com" or "true")',
+      "--hostnames <hosts>",
+      'Daemon hostnames (comma-separated, e.g. "myhost,.example.com" or "true" for any)',
     )
-    .action(withOutput(runDaemonRestartCommand));
+    .addOption(new Option("--allowed-hosts <hosts>").hideHelp())
+    .action(
+      withOutput((...args) => {
+        const [options, command] = args.slice(-2) as [(typeof args)[number], Command];
+        return runDaemonRestartCommand(
+          {
+            ...options,
+            hostnames: resolveHostnamesOption(options.hostnames, options.allowedHosts),
+          },
+          command,
+        );
+      }),
+    );
 
   // Advanced agent commands (less common operations)
   program.addCommand(createAgentCommand());

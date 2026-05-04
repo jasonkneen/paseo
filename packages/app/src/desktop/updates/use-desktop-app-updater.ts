@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkDesktopAppUpdate,
   formatVersionWithPrefix,
@@ -7,15 +7,19 @@ import {
   type DesktopAppUpdateCheckResult,
   type DesktopAppUpdateInstallResult,
 } from "@/desktop/updates/desktop-updates";
+import { useDesktopSettings } from "@/desktop/settings/desktop-settings";
 
 export type DesktopAppUpdateStatus =
   | "idle"
   | "checking"
+  | "pending"
   | "up-to-date"
   | "available"
   | "installing"
   | "installed"
   | "error";
+
+const PENDING_RECHECK_MS = 10_000;
 
 export interface UseDesktopAppUpdaterReturn {
   isDesktopApp: boolean;
@@ -56,11 +60,15 @@ function formatStatusText(input: {
     return "App is up to date.";
   }
 
+  if (status === "pending") {
+    return "We'll let you know when the update is ready.";
+  }
+
   if (status === "available") {
     if (availableUpdate?.latestVersion) {
-      return `Update available: ${formatVersionWithPrefix(availableUpdate.latestVersion)}`;
+      return `Update ready: ${formatVersionWithPrefix(availableUpdate.latestVersion)}`;
     }
-    return "An app update is available.";
+    return "An app update is ready to install.";
   }
 
   if (status === "installed") {
@@ -76,6 +84,8 @@ function formatStatusText(input: {
 
 export function useDesktopAppUpdater(): UseDesktopAppUpdaterReturn {
   const isDesktopApp = shouldShowDesktopUpdateSection();
+  const { settings: desktopSettings } = useDesktopSettings();
+  const releaseChannel = desktopSettings.releaseChannel;
   const requestVersionRef = useRef(0);
   const [status, setStatus] = useState<DesktopAppUpdateStatus>("idle");
   const [availableUpdate, setAvailableUpdate] = useState<DesktopAppUpdateCheckResult | null>(null);
@@ -98,7 +108,7 @@ export function useDesktopAppUpdater(): UseDesktopAppUpdaterReturn {
       setErrorMessage(null);
 
       try {
-        const result = await checkDesktopAppUpdate();
+        const result = await checkDesktopAppUpdate({ releaseChannel });
         if (requestVersion !== requestVersionRef.current) {
           return result;
         }
@@ -106,9 +116,12 @@ export function useDesktopAppUpdater(): UseDesktopAppUpdaterReturn {
         setInstallMessage(null);
         setLastCheckedAt(Date.now());
 
-        if (result.hasUpdate) {
+        if (result.readyToInstall) {
           setAvailableUpdate(result);
           setStatus("available");
+        } else if (result.hasUpdate) {
+          setAvailableUpdate(null);
+          setStatus("pending");
         } else {
           setAvailableUpdate(null);
           setStatus("up-to-date");
@@ -130,8 +143,30 @@ export function useDesktopAppUpdater(): UseDesktopAppUpdaterReturn {
         return null;
       }
     },
-    [isDesktopApp],
+    [isDesktopApp, releaseChannel],
   );
+
+  useEffect(() => {
+    if (!isDesktopApp) {
+      return;
+    }
+
+    void checkForUpdates({ silent: true });
+  }, [checkForUpdates, isDesktopApp]);
+
+  useEffect(() => {
+    if (!isDesktopApp || status !== "pending") {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      void checkForUpdates({ silent: true });
+    }, PENDING_RECHECK_MS);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [checkForUpdates, isDesktopApp, status]);
 
   const installUpdate = useCallback(async () => {
     if (!isDesktopApp) {
@@ -142,7 +177,7 @@ export function useDesktopAppUpdater(): UseDesktopAppUpdaterReturn {
     setErrorMessage(null);
 
     try {
-      const result = await installDesktopAppUpdate();
+      const result = await installDesktopAppUpdate({ releaseChannel });
       setLastCheckedAt(Date.now());
 
       if (result.installed) {
@@ -162,7 +197,7 @@ export function useDesktopAppUpdater(): UseDesktopAppUpdaterReturn {
       setErrorMessage(message);
       return null;
     }
-  }, [isDesktopApp]);
+  }, [isDesktopApp, releaseChannel]);
 
   return {
     isDesktopApp,

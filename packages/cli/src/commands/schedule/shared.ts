@@ -9,6 +9,7 @@ import type {
   ScheduleTarget,
 } from "./types.js";
 import { parseDuration } from "../../utils/duration.js";
+import { resolveProviderAndModel } from "../../utils/provider-model.js";
 
 export interface ScheduleCommandOptions extends CommandOptions {
   host?: string;
@@ -33,11 +34,7 @@ export async function connectScheduleClient(
   }
 }
 
-export function toScheduleCommandError(
-  code: string,
-  action: string,
-  error: unknown,
-): CommandError {
+export function toScheduleCommandError(code: string, action: string, error: unknown): CommandError {
   if (error && typeof error === "object" && "code" in error) {
     return error as CommandError;
   }
@@ -62,7 +59,8 @@ export function formatTarget(target: ScheduleTarget | ScheduleListItem["target"]
   if (target.type === "agent") {
     return `agent:${target.agentId.slice(0, 7)}`;
   }
-  return `new-agent:${target.config.provider}`;
+  const modelSuffix = target.config.model ? `/${target.config.model}` : "";
+  return `new-agent:${target.config.provider}${modelSuffix}`;
 }
 
 export function formatDurationMs(durationMs: number): string {
@@ -85,14 +83,59 @@ export function formatDurationMs(durationMs: number): string {
   return parts.join("");
 }
 
+function resolveScheduleTarget(args: {
+  targetValue: string | undefined;
+  hasExplicitNewAgentOption: boolean;
+  createNewAgentTarget: () => ScheduleTarget;
+}): ScheduleTarget {
+  const { targetValue, hasExplicitNewAgentOption, createNewAgentTarget } = args;
+  const currentAgentId = process.env.PASEO_AGENT_ID?.trim();
+
+  if (!targetValue) {
+    if (currentAgentId && !hasExplicitNewAgentOption) {
+      return { type: "self", agentId: currentAgentId };
+    }
+    return createNewAgentTarget();
+  }
+
+  if (targetValue === "new-agent") {
+    return createNewAgentTarget();
+  }
+
+  if (hasExplicitNewAgentOption) {
+    throw {
+      code: "INVALID_TARGET",
+      message: "--provider/--mode can only be used with a new-agent target",
+      details: "Use --target new-agent or omit --target to create a new agent schedule",
+    } satisfies CommandError;
+  }
+
+  if (targetValue === "self") {
+    if (!currentAgentId) {
+      throw {
+        code: "INVALID_TARGET",
+        message: "--target self requires running inside a Paseo agent",
+      } satisfies CommandError;
+    }
+    return { type: "self", agentId: currentAgentId };
+  }
+
+  return { type: "agent", agentId: targetValue };
+}
+
 export function parseScheduleCreateInput(options: {
   prompt: string;
   every?: string;
   cron?: string;
   name?: string;
   target?: string;
+  provider?: string;
+  mode?: string;
+  cwd?: string;
+  host?: string;
   maxRuns?: string;
   expiresIn?: string;
+  runNow?: boolean;
 }): CreateScheduleInput {
   const prompt = options.prompt.trim();
   if (!prompt) {
@@ -114,35 +157,39 @@ export function parseScheduleCreateInput(options: {
     ? { type: "every", everyMs: parseDuration(options.every) }
     : { type: "cron", expression: options.cron!.trim() };
 
+  const cwdInput = options.cwd?.trim();
+  if (options.host !== undefined && !cwdInput) {
+    throw {
+      code: "MISSING_CWD",
+      message:
+        "--cwd is required when --host is specified (the local working directory will not exist on the remote daemon)",
+    } satisfies CommandError;
+  }
+
+  const runOnCreate = resolveRunOnCreate(options.runNow, cadence.type);
+
   const targetValue = options.target?.trim();
-  let target: ScheduleTarget;
-  if (!targetValue || targetValue === "self") {
-    const currentAgentId = process.env.PASEO_AGENT_ID?.trim();
-    if (currentAgentId) {
-      target = { type: "self", agentId: currentAgentId };
-    } else {
-      target = {
-        type: "new-agent",
-        config: {
-          provider: "claude",
-          cwd: process.cwd(),
-        },
-      };
-    }
-  } else if (targetValue === "new-agent") {
-    target = {
+  const modeId = options.mode?.trim();
+  const hasExplicitNewAgentOption = options.provider !== undefined || options.mode !== undefined;
+  const createNewAgentTarget = (): ScheduleTarget => {
+    const resolvedProviderModel = resolveProviderAndModel({
+      provider: options.provider,
+    });
+    return {
       type: "new-agent",
       config: {
-        provider: "claude",
-        cwd: process.cwd(),
+        provider: resolvedProviderModel.provider,
+        cwd: cwdInput ?? process.cwd(),
+        ...(resolvedProviderModel.model ? { model: resolvedProviderModel.model } : {}),
+        ...(modeId ? { modeId } : {}),
       },
     };
-  } else {
-    target = {
-      type: "agent",
-      agentId: targetValue,
-    };
-  }
+  };
+  const target = resolveScheduleTarget({
+    targetValue,
+    hasExplicitNewAgentOption,
+    createNewAgentTarget,
+  });
 
   const maxRuns =
     options.maxRuns === undefined ? undefined : parsePositiveInt(options.maxRuns, "--max-runs");
@@ -155,10 +202,32 @@ export function parseScheduleCreateInput(options: {
     prompt,
     cadence,
     target,
+    runOnCreate,
     ...(options.name?.trim() ? { name: options.name.trim() } : {}),
     ...(maxRuns !== undefined ? { maxRuns } : {}),
     ...(expiresAt ? { expiresAt } : {}),
   };
+}
+
+function resolveRunOnCreate(
+  runNow: boolean | undefined,
+  cadenceType: ScheduleCadence["type"],
+): boolean {
+  if (runNow === true && cadenceType === "every") {
+    throw {
+      code: "REDUNDANT_RUN_NOW",
+      message: "--run-now is redundant with --every (interval schedules already fire on creation)",
+      details: "Drop --run-now, or use --no-run-now to wait the full interval before the first run",
+    } satisfies CommandError;
+  }
+  if (runNow === false && cadenceType === "cron") {
+    throw {
+      code: "REDUNDANT_NO_RUN_NOW",
+      message: "--no-run-now is redundant with --cron (cron schedules never fire on creation)",
+      details: "Drop --no-run-now, or use --run-now to fire one immediate run on creation",
+    } satisfies CommandError;
+  }
+  return runNow ?? cadenceType === "every";
 }
 
 function parsePositiveInt(value: string, flag: string): number {

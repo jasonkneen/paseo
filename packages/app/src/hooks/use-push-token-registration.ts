@@ -4,14 +4,19 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import type { DaemonClient } from "@server/client/daemon-client";
+import { isWeb } from "@/constants/platform";
 
 const STORAGE_PREFIX = "@paseo:expo-push-token:";
 
 function getExpoProjectId(): string | null {
-  const fromEas = (Constants as any)?.easConfig?.projectId;
+  const constants = Constants as unknown as {
+    easConfig?: { projectId?: unknown };
+    expoConfig?: { extra?: { eas?: { projectId?: unknown } } };
+  };
+  const fromEas = constants?.easConfig?.projectId;
   if (typeof fromEas === "string" && fromEas.trim()) return fromEas.trim();
 
-  const fromExtra = (Constants as any)?.expoConfig?.extra?.eas?.projectId;
+  const fromExtra = constants?.expoConfig?.extra?.eas?.projectId;
   if (typeof fromExtra === "string" && fromExtra.trim()) return fromExtra.trim();
 
   return null;
@@ -31,7 +36,7 @@ export function usePushTokenRegistration(params: { client: DaemonClient; serverI
   const lastSentTokenRef = useRef<string | null>(null);
 
   const registerIfPossible = useCallback(async () => {
-    if (Platform.OS === "web") return;
+    if (isWeb) return;
     if (!client.isConnected) return;
     const token = tokenRef.current;
     if (!token) return;
@@ -41,7 +46,7 @@ export function usePushTokenRegistration(params: { client: DaemonClient; serverI
   }, [client]);
 
   useEffect(() => {
-    if (Platform.OS === "web") return;
+    if (isWeb) return;
 
     const storageKey = `${STORAGE_PREFIX}${serverId}`;
     let cancelled = false;

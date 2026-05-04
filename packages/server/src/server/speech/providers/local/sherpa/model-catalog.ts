@@ -4,7 +4,7 @@ export type SherpaOnnxModelKind = "stt-online" | "stt-offline" | "tts";
 
 type DefaultModelRole = "stt" | "tts";
 
-type SherpaOnnxCatalogEntry = {
+interface SherpaOnnxCatalogEntry {
   kind: SherpaOnnxModelKind;
   archiveUrl?: string;
   downloadFiles?: Array<{ url: string; relPath: string }>;
@@ -13,7 +13,7 @@ type SherpaOnnxCatalogEntry = {
   description: string;
   aliases?: readonly string[];
   defaultFor?: DefaultModelRole;
-};
+}
 
 export const SHERPA_ONNX_MODEL_CATALOG = {
   "zipformer-bilingual-zh-en-2023-02-20": {
@@ -187,7 +187,7 @@ function createAliasedModelIdSchema<T extends string>(params: {
         message: "Invalid model id",
       },
     )
-    .transform((value) => params.aliases[value] ?? (value as T));
+    .transform((value) => params.aliases[value] ?? value);
 }
 
 const STT_MODEL_ALIASES = buildAliasMap(LOCAL_STT_MODEL_IDS);
@@ -208,10 +208,7 @@ export type SherpaOnnxModelSpec = SherpaOnnxCatalogEntry & {
 };
 
 export function listSherpaOnnxModels(): SherpaOnnxModelSpec[] {
-  return ALL_MODEL_IDS.map((id) => ({
-    id,
-    ...SHERPA_ONNX_MODEL_CATALOG[id],
-  }));
+  return ALL_MODEL_IDS.map((id) => Object.assign({ id }, SHERPA_ONNX_MODEL_CATALOG[id]));
 }
 
 export function getSherpaOnnxModelSpec(id: SherpaOnnxModelId): SherpaOnnxModelSpec {

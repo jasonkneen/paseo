@@ -1,4 +1,5 @@
 import type { ToolCallTimelineItem } from "../server/agent/agent-sdk-types.js";
+import { getPaseoToolLeafName, isPaseoToolName } from "../server/agent/tool-name-normalization.js";
 import { stripCwdPrefix } from "./path-utils.js";
 
 export type ToolCallDisplayInput = Pick<
@@ -8,16 +9,16 @@ export type ToolCallDisplayInput = Pick<
   cwd?: string;
 };
 
-export type ToolCallDisplayModel = {
+export interface ToolCallDisplayModel {
   displayName: string;
   summary?: string;
   errorText?: string;
-};
+}
 
-type DetailDisplay = {
+interface DetailDisplay {
   displayName?: string;
   summary?: string;
-};
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -31,6 +32,12 @@ function humanizeToolName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) {
     return name;
+  }
+  if (isPaseoToolName(trimmed)) {
+    const leaf = getPaseoToolLeafName(trimmed);
+    if (leaf) {
+      return humanizeToolName(leaf);
+    }
   }
   if (/[:./]/.test(trimmed) || trimmed.includes("__")) {
     return trimmed;

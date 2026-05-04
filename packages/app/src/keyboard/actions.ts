@@ -16,6 +16,7 @@ export type MessageInputKeyboardActionKind =
   | "voice-mute-toggle";
 
 export type KeyboardActionId =
+  | "agent.interrupt"
   | "agent.new"
   | "workspace.tab.new"
   | "workspace.tab.close.current"
@@ -37,12 +38,14 @@ export type KeyboardActionId =
   | "sidebar.toggle.left"
   | "sidebar.toggle.right"
   | "sidebar.toggle.both"
+  | "settings.toggle"
   | "command-center.toggle"
   | "shortcuts.dialog.toggle"
   | "workspace.terminal.new"
   | "worktree.new"
   | "worktree.archive"
   | "view.toggle.focus"
+  | "theme.cycle"
   | "message-input.action";
 
 export type KeyboardShortcutPayload =

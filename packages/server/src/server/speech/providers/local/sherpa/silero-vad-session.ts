@@ -19,27 +19,27 @@ const SILERO_MIN_SPEECH_DURATION = 0.1;
 const DEFAULT_CONFIRM_MS = 800;
 const DEFAULT_SILENCE_MS = 1000;
 
-type SherpaVadHandle = {
+interface SherpaVadHandle {
   acceptWaveform(samples: Float32Array): void;
   isDetected(): boolean;
   isEmpty(): boolean;
   flush(): void;
   reset(): void;
-};
+}
 
-type SherpaCircularBufferHandle = {
+interface SherpaCircularBufferHandle {
   push(samples: Float32Array): void;
   get(startIndex: number, n: number, enableExternalBuffer?: boolean): Float32Array;
   pop(n: number): void;
   size(): number;
   head(): number;
   reset(): void;
-};
+}
 
-type SherpaVadModule = {
+interface SherpaVadModule {
   Vad: new (config: Record<string, unknown>, bufferSizeInSeconds: number) => SherpaVadHandle;
   CircularBuffer: new (capacity: number) => SherpaCircularBufferHandle;
-};
+}
 
 export function resolveBundledSileroVadModelPath(): string {
   return fileURLToPath(new URL("./assets/silero_vad.onnx", import.meta.url));
@@ -162,10 +162,7 @@ export class SherpaSileroVadSession extends EventEmitter implements TurnDetectio
     }
 
     try {
-      this.logger.debug(
-        { phase: this.phase.state },
-        "[VAD] Flushing remaining audio",
-      );
+      this.logger.debug({ phase: this.phase.state }, "[VAD] Flushing remaining audio");
       this.vad.flush();
       this.stepStateMachine();
       if (this.phase.state === "speaking" || this.phase.state === "ending") {
@@ -205,10 +202,7 @@ export class SherpaSileroVadSession extends EventEmitter implements TurnDetectio
     switch (this.phase.state) {
       case "idle": {
         if (detected) {
-          this.logger.debug(
-            { now },
-            "[VAD] idle → confirming (detection started)",
-          );
+          this.logger.debug({ now }, "[VAD] idle → confirming (detection started)");
           this.phase = { state: "confirming", startedAt: now };
         }
         break;
@@ -238,10 +232,7 @@ export class SherpaSileroVadSession extends EventEmitter implements TurnDetectio
 
       case "speaking": {
         if (!detected) {
-          this.logger.debug(
-            { now },
-            "[VAD] speaking → ending (silence started)",
-          );
+          this.logger.debug({ now }, "[VAD] speaking → ending (silence started)");
           this.phase = { state: "ending", startedAt: now };
         }
         break;

@@ -11,48 +11,41 @@ export type { KeyCombo } from "@/keyboard/shortcut-string";
 
 // --- Public types ---
 
-export type KeyboardShortcutContext = {
+export interface KeyboardShortcutContext {
   isMac: boolean;
   isDesktop: boolean;
   focusScope: KeyboardFocusScope;
   commandCenterOpen: boolean;
-  hasSelectedAgent: boolean;
-};
+}
 
-export type KeyboardShortcutMatch = {
+export interface KeyboardShortcutMatch {
   action: KeyboardActionId;
   payload: KeyboardShortcutPayload;
   preventDefault: boolean;
   stopPropagation: boolean;
-};
+}
 
-export type KeyboardShortcutHelpRow = {
+export interface KeyboardShortcutHelpRow {
   id: string;
   label: string;
   keys: ShortcutKey[];
   note?: string;
-};
+}
 
-export type ShortcutSectionId =
-  | "navigation"
-  | "tabs-panes"
-  | "projects"
-  | "panels"
-  | "agent-input";
+export type ShortcutSectionId = "navigation" | "tabs-panes" | "projects" | "panels" | "agent-input";
 
-export type KeyboardShortcutHelpSection = {
+export interface KeyboardShortcutHelpSection {
   id: ShortcutSectionId;
   title: string;
   rows: KeyboardShortcutHelpRow[];
-};
+}
 
 // --- Binding definition types ---
 
-type KeyboardShortcutPlatformContext = {
+interface KeyboardShortcutPlatformContext {
   isMac: boolean;
   isDesktop: boolean;
-};
-
+}
 
 interface ShortcutWhen {
   /** true = mac only, false = non-mac only */
@@ -63,8 +56,6 @@ interface ShortcutWhen {
   terminal?: false;
   /** false = disabled when command center is open */
   commandCenter?: false;
-  /** true = requires a selected agent */
-  hasSelectedAgent?: true;
   /** Exact focus scope match */
   focusScope?: KeyboardFocusScope;
 }
@@ -204,7 +195,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     help: {
       id: "workspace-tab-new",
       section: "tabs-panes",
-      label: "New agent tab",
+      label: "New tab",
       keys: ["mod", "T"],
     },
   },
@@ -216,7 +207,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     help: {
       id: "workspace-tab-new",
       section: "tabs-panes",
-      label: "New agent tab",
+      label: "New tab",
       keys: ["mod", "T"],
     },
   },
@@ -665,7 +656,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     id: "sidebar-toggle-right-cmd-e-mac",
     action: "sidebar.toggle.right",
     combo: "Cmd+E",
-    when: { mac: true, hasSelectedAgent: true, commandCenter: false },
+    when: { mac: true, commandCenter: false },
     help: {
       id: "toggle-right-sidebar",
       section: "panels",
@@ -677,7 +668,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     id: "sidebar-toggle-right-ctrl-e-non-mac",
     action: "sidebar.toggle.right",
     combo: "Ctrl+E",
-    when: { mac: false, hasSelectedAgent: true, commandCenter: false, terminal: false },
+    when: { mac: false, commandCenter: false, terminal: false },
     help: {
       id: "toggle-right-sidebar",
       section: "panels",
@@ -689,7 +680,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     id: "sidebar-toggle-right-ctrl-backquote",
     action: "sidebar.toggle.right",
     combo: "Ctrl+`",
-    when: { hasSelectedAgent: true, commandCenter: false },
+    when: { commandCenter: false },
   },
 
   // --- Toggle both sidebars ---
@@ -718,12 +709,38 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     },
   },
 
+  // --- Settings toggle ---
+  {
+    id: "settings-toggle-cmd-comma-mac",
+    action: "settings.toggle",
+    combo: "Cmd+,",
+    when: { mac: true, commandCenter: false },
+    help: {
+      id: "toggle-settings",
+      section: "panels",
+      label: "Toggle settings",
+      keys: ["mod", ","],
+    },
+  },
+  {
+    id: "settings-toggle-ctrl-comma-non-mac",
+    action: "settings.toggle",
+    combo: "Ctrl+,",
+    when: { mac: false, commandCenter: false, terminal: false },
+    help: {
+      id: "toggle-settings",
+      section: "panels",
+      label: "Toggle settings",
+      keys: ["mod", ","],
+    },
+  },
+
   // --- Focus mode ---
   {
     id: "view-toggle-focus-cmd-shift-f-mac",
     action: "view.toggle.focus",
     combo: "Cmd+Shift+F",
-    when: { mac: true, hasSelectedAgent: true, commandCenter: false },
+    when: { mac: true, commandCenter: false },
     help: {
       id: "toggle-focus",
       section: "panels",
@@ -735,7 +752,7 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     id: "view-toggle-focus-ctrl-shift-f-non-mac",
     action: "view.toggle.focus",
     combo: "Ctrl+Shift+F",
-    when: { mac: false, hasSelectedAgent: true, commandCenter: false, terminal: false },
+    when: { mac: false, commandCenter: false, terminal: false },
     help: {
       id: "toggle-focus",
       section: "panels",
@@ -744,7 +761,59 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     },
   },
 
+  // --- Theme cycling ---
+  {
+    id: "theme-cycle-cmd-shift-t-mac",
+    action: "theme.cycle",
+    combo: "Cmd+Alt+T",
+    when: { mac: true, commandCenter: false },
+    help: {
+      id: "cycle-theme",
+      section: "panels",
+      label: "Cycle theme",
+      keys: ["mod", "alt", "T"],
+    },
+  },
+  {
+    id: "theme-cycle-ctrl-alt-t-non-mac",
+    action: "theme.cycle",
+    combo: "Ctrl+Alt+T",
+    when: { mac: false, commandCenter: false, terminal: false },
+    help: {
+      id: "cycle-theme",
+      section: "panels",
+      label: "Cycle theme",
+      keys: ["mod", "alt", "T"],
+    },
+  },
+
   // --- Message input ---
+  {
+    id: "message-input-focus-cmd-l-mac",
+    action: "message-input.action",
+    combo: "Cmd+L",
+    when: { mac: true, commandCenter: false },
+    payload: { type: "message-input", kind: "focus" },
+    help: {
+      id: "focus-message-input",
+      section: "agent-input",
+      label: "Focus message input",
+      keys: ["mod", "L"],
+    },
+  },
+  {
+    id: "message-input-focus-ctrl-l-non-mac",
+    action: "message-input.action",
+    combo: "Ctrl+L",
+    when: { mac: false, commandCenter: false, terminal: false },
+    payload: { type: "message-input", kind: "focus" },
+    help: {
+      id: "focus-message-input",
+      section: "agent-input",
+      label: "Focus message input",
+      keys: ["mod", "L"],
+    },
+  },
   {
     id: "message-input-voice-toggle-cmd-shift-d-mac",
     action: "message-input.action",
@@ -800,17 +869,16 @@ const SHORTCUT_BINDINGS: readonly ShortcutBinding[] = [
     },
   },
   {
-    id: "message-input-dictation-cancel",
-    action: "message-input.action",
+    id: "agent-interrupt",
+    action: "agent.interrupt",
     combo: "Escape",
     when: { commandCenter: false, terminal: false },
-    payload: { type: "message-input", kind: "dictation-cancel" },
     preventDefault: false,
     stopPropagation: false,
     help: {
-      id: "dictation-cancel",
+      id: "agent-interrupt",
       section: "agent-input",
-      label: "Cancel dictation",
+      label: "Interrupt agent",
       keys: ["Esc"],
     },
   },
@@ -898,9 +966,7 @@ function parseBinding(binding: ShortcutBinding): ParsedShortcutBinding {
 export const DEFAULT_BINDINGS: readonly ParsedShortcutBinding[] =
   SHORTCUT_BINDINGS.map(parseBinding);
 
-export function buildEffectiveBindings(
-  overrides: Record<string, string>,
-): ParsedShortcutBinding[] {
+export function buildEffectiveBindings(overrides: Record<string, string>): ParsedShortcutBinding[] {
   return DEFAULT_BINDINGS.map(function (binding) {
     const override = overrides[binding.id];
     if (override === undefined) {
@@ -971,7 +1037,6 @@ function matchesWhen(when: ShortcutWhen | undefined, context: KeyboardShortcutCo
   if (when.desktop !== undefined && when.desktop !== context.isDesktop) return false;
   if (when.terminal === false && context.focusScope === "terminal") return false;
   if (when.commandCenter === false && context.commandCenterOpen) return false;
-  if (when.hasSelectedAgent === true && !context.hasSelectedAgent) return false;
   if (when.focusScope !== undefined && context.focusScope !== when.focusScope) return false;
   return true;
 }
@@ -1025,78 +1090,84 @@ function helpMatchesPlatform(
 
 // --- Public API ---
 
-export function resolveKeyboardShortcut(input: {
+function buildMatchFromBinding(
+  binding: ParsedShortcutBinding,
+  event: KeyboardEvent,
+): KeyboardShortcutMatch {
+  return {
+    action: binding.action,
+    payload: resolvePayload(binding.payload, event),
+    preventDefault: binding.preventDefault ?? true,
+    stopPropagation: binding.stopPropagation ?? true,
+  };
+}
+
+function resolveInitialChordStep(input: {
   event: KeyboardEvent;
   context: KeyboardShortcutContext;
   chordState: ChordState;
   onChordReset: () => void;
-  bindings?: readonly ParsedShortcutBinding[];
-}): {
-  match: KeyboardShortcutMatch | null;
-  nextChordState: ChordState;
-  preventDefault: boolean;
-};
-export function resolveKeyboardShortcut(input: {
-  event: KeyboardEvent;
-  context: KeyboardShortcutContext;
-  chordState: ChordState;
-  onChordReset: () => void;
-  bindings?: readonly ParsedShortcutBinding[];
+  bindings: readonly ParsedShortcutBinding[];
 }): {
   match: KeyboardShortcutMatch | null;
   nextChordState: ChordState;
   preventDefault: boolean;
 } {
-  const { event, context, chordState, onChordReset, bindings = DEFAULT_BINDINGS } = input;
+  const { event, context, chordState, onChordReset, bindings } = input;
+  const advancingCandidateIndices: number[] = [];
+  let singleComboMatch: KeyboardShortcutMatch | null = null;
 
-  if (chordState.step === 0) {
-    const advancingCandidateIndices: number[] = [];
-    let singleComboMatch: KeyboardShortcutMatch | null = null;
-
-    for (const [index, binding] of bindings.entries()) {
-      const firstCombo = binding.parsedChord[0];
-      if (!firstCombo) {
-        continue;
-      }
-      if (!matchesCombo(firstCombo, event, context.isMac)) {
-        continue;
-      }
-      if (!matchesWhen(binding.when, context)) {
-        continue;
-      }
-      if (binding.parsedChord.length > 1) {
-        advancingCandidateIndices.push(index);
-        continue;
-      }
-      if (!singleComboMatch) {
-        singleComboMatch = {
-          action: binding.action,
-          payload: resolvePayload(binding.payload, event),
-          preventDefault: binding.preventDefault ?? true,
-          stopPropagation: binding.stopPropagation ?? true,
-        };
-      }
+  for (const [index, binding] of bindings.entries()) {
+    const firstCombo = binding.parsedChord[0];
+    if (!firstCombo) {
+      continue;
     }
-
-    if (advancingCandidateIndices.length > 0) {
-      return {
-        match: null,
-        nextChordState: {
-          candidateIndices: advancingCandidateIndices,
-          step: 1,
-          timeoutId: createChordTimeout(onChordReset),
-        },
-        preventDefault: true,
-      };
+    if (!matchesCombo(firstCombo, event, context.isMac)) {
+      continue;
     }
+    if (!matchesWhen(binding.when, context)) {
+      continue;
+    }
+    if (binding.parsedChord.length > 1) {
+      advancingCandidateIndices.push(index);
+      continue;
+    }
+    if (!singleComboMatch) {
+      singleComboMatch = buildMatchFromBinding(binding, event);
+    }
+  }
 
+  if (advancingCandidateIndices.length > 0) {
     return {
-      match: singleComboMatch,
-      nextChordState: resetChordState(chordState),
-      preventDefault: false,
+      match: null,
+      nextChordState: {
+        candidateIndices: advancingCandidateIndices,
+        step: 1,
+        timeoutId: createChordTimeout(onChordReset),
+      },
+      preventDefault: true,
     };
   }
 
+  return {
+    match: singleComboMatch,
+    nextChordState: resetChordState(chordState),
+    preventDefault: false,
+  };
+}
+
+function resolveAdvancingChordStep(input: {
+  event: KeyboardEvent;
+  context: KeyboardShortcutContext;
+  chordState: ChordState;
+  onChordReset: () => void;
+  bindings: readonly ParsedShortcutBinding[];
+}): {
+  match: KeyboardShortcutMatch | null;
+  nextChordState: ChordState;
+  preventDefault: boolean;
+} {
+  const { event, context, chordState, onChordReset, bindings } = input;
   const matchingCandidateIndices: number[] = [];
   let completedMatch: KeyboardShortcutMatch | null = null;
 
@@ -1116,12 +1187,7 @@ export function resolveKeyboardShortcut(input: {
       continue;
     }
     if (chordState.step + 1 === binding.parsedChord.length) {
-      completedMatch = {
-        action: binding.action,
-        payload: resolvePayload(binding.payload, event),
-        preventDefault: binding.preventDefault ?? true,
-        stopPropagation: binding.stopPropagation ?? true,
-      };
+      completedMatch = buildMatchFromBinding(binding, event);
       break;
     }
     matchingCandidateIndices.push(index);
@@ -1153,6 +1219,24 @@ export function resolveKeyboardShortcut(input: {
     nextChordState: resetChordState(chordState),
     preventDefault: false,
   };
+}
+
+export function resolveKeyboardShortcut(input: {
+  event: KeyboardEvent;
+  context: KeyboardShortcutContext;
+  chordState: ChordState;
+  onChordReset: () => void;
+  bindings?: readonly ParsedShortcutBinding[];
+}): {
+  match: KeyboardShortcutMatch | null;
+  nextChordState: ChordState;
+  preventDefault: boolean;
+} {
+  const { event, context, chordState, onChordReset, bindings = DEFAULT_BINDINGS } = input;
+  if (chordState.step === 0) {
+    return resolveInitialChordStep({ event, context, chordState, onChordReset, bindings });
+  }
+  return resolveAdvancingChordStep({ event, context, chordState, onChordReset, bindings });
 }
 
 export function getBindingIdForAction(
@@ -1226,7 +1310,13 @@ export function buildKeyboardShortcutHelpSections(
     });
   }
 
-  const sectionOrder: ShortcutSectionId[] = ["navigation", "tabs-panes", "projects", "panels", "agent-input"];
+  const sectionOrder: ShortcutSectionId[] = [
+    "navigation",
+    "tabs-panes",
+    "projects",
+    "panels",
+    "agent-input",
+  ];
 
   return sectionOrder.flatMap((sectionId) => {
     const rows = rowsBySection.get(sectionId) ?? [];

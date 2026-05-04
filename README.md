@@ -4,6 +4,21 @@
 
 <h1 align="center">Paseo</h1>
 
+<p align="center">
+  <a href="https://github.com/getpaseo/paseo/stargazers">
+    <img src="https://img.shields.io/github/stars/getpaseo/paseo?style=flat&logo=github" alt="GitHub stars">
+  </a>
+  <a href="https://github.com/getpaseo/paseo/releases">
+    <img src="https://img.shields.io/github/v/release/getpaseo/paseo?style=flat&logo=github" alt="GitHub release">
+  </a>
+  <a href="https://x.com/moboudra">
+    <img src="https://img.shields.io/badge/%40moboudra-555?logo=x" alt="X">
+  </a>
+  <a href="https://discord.gg/jz8T2uahpH">
+    <img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord">
+  </a>
+</p>
+
 <p align="center">One interface for all your Claude Code, Codex and OpenCode agents.</p>
 
 <p align="center">
@@ -54,6 +69,7 @@ paseo
 This shows a QR code in the terminal. Connect from any client. This path is useful for servers and remote machines.
 
 For full setup and configuration, see:
+
 - [Docs](https://paseo.sh/docs)
 - [Configuration reference](https://paseo.sh/docs/configuration)
 
@@ -101,6 +117,7 @@ Then use them in any agent conversation:
 ## Development
 
 Quick monorepo package map:
+
 - `packages/server`: Paseo daemon (agent process orchestration, WebSocket API, MCP server)
 - `packages/app`: Expo client (iOS, Android, web)
 - `packages/cli`: `paseo` CLI for daemon and agent workflows
@@ -126,6 +143,16 @@ npm run build:daemon
 # repo-wide checks
 npm run typecheck
 ```
+
+<p align="center">
+  <a href="https://star-history.com/#getpaseo/paseo&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=getpaseo/paseo&type=Date&theme=dark">
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=getpaseo/paseo&type=Date">
+      <img src="https://api.star-history.com/svg?repos=getpaseo/paseo&type=Date" alt="Star history chart for getpaseo/paseo" width="600" style="max-width: 100%;">
+    </picture>
+  </a>
+</p>
 
 ## License
 

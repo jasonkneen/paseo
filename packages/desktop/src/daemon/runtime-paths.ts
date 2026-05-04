@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { spawnProcess } from "@getpaseo/server";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { app } from "electron";
+import log from "electron-log/main";
 import {
   DESKTOP_CLI_ENV,
   createNodeEntrypointInvocation as createSharedNodeEntrypointInvocation,
@@ -16,9 +18,9 @@ const CLI_PACKAGE_NAME = "@getpaseo/cli";
 const SERVER_PACKAGE_NAME = "@getpaseo/server";
 const CLI_BIN_ENTRY = `${CLI_PACKAGE_NAME}/bin/paseo`;
 
-type PackageInfo = {
+interface PackageInfo {
   root: string;
-};
+}
 
 const esmRequire = createRequire(__filename);
 
@@ -76,7 +78,13 @@ function resolvePackagedAsarPath(): string {
 }
 
 function resolvePackagedNodeEntrypointRunnerPath(): string {
-  return path.join(process.resourcesPath, "app.asar.unpacked", "dist", "daemon", "node-entrypoint-runner.js");
+  return path.join(
+    process.resourcesPath,
+    "app.asar.unpacked",
+    "dist",
+    "daemon",
+    "node-entrypoint-runner.js",
+  );
 }
 
 function assertPathExists(input: { label: string; filePath: string }): string {
@@ -115,12 +123,7 @@ export function resolveDaemonRunnerEntrypoint(): NodeEntrypointSpec {
   }
 
   const serverPackage = resolveServerPackageInfo();
-  const distRunner = path.join(
-    serverPackage.root,
-    "dist",
-    "scripts",
-    "supervisor-entrypoint.js",
-  );
+  const distRunner = path.join(serverPackage.root, "dist", "scripts", "supervisor-entrypoint.js");
   if (existsSync(distRunner)) {
     return {
       entryPath: distRunner,
@@ -234,6 +237,7 @@ export function runCliPassthroughCommand(args: string[]): number {
   const result = spawnSync(invocation.command, invocation.args, {
     env: invocation.env,
     stdio: "inherit",
+    windowsHide: true,
   });
   if (result.error) {
     throw result.error;
@@ -252,7 +256,8 @@ function spawnAsync(
   options: { env: NodeJS.ProcessEnv },
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawnProcess(command, args, {
+      envMode: "internal",
       env: options.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -260,10 +265,10 @@ function spawnAsync(
     let stdout = "";
     let stderr = "";
 
-    child.stdout.on("data", (data: Buffer) => {
+    child.stdout!.on("data", (data: Buffer) => {
       stdout += data.toString();
     });
-    child.stderr.on("data", (data: Buffer) => {
+    child.stderr!.on("data", (data: Buffer) => {
       stderr += data.toString();
     });
 
@@ -282,7 +287,18 @@ export async function runCliTextCommand(args: string[]): Promise<string> {
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.trim();
-    throw new Error(stderr.length > 0 ? stderr : `CLI command failed with exit code ${result.exitCode}`);
+    const stdout = result.stdout.trim();
+    log.warn("[desktop cli]", `CLI text command failed`, {
+      args,
+      exitCode: result.exitCode,
+      stdout: stdout.slice(0, 500),
+      stderr: stderr.slice(0, 500),
+    });
+    throw new Error(
+      stderr.length > 0
+        ? stderr
+        : `CLI command failed with exit code ${result.exitCode}${stdout.length > 0 ? `\nstdout: ${stdout.slice(0, 200)}` : ""}`,
+    );
   }
 
   return result.stdout.trimEnd();
@@ -296,11 +312,24 @@ export async function runCliJsonCommand(args: string[]): Promise<unknown> {
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.trim();
-    throw new Error(stderr.length > 0 ? stderr : `CLI command failed with exit code ${result.exitCode}`);
+    const stdout = result.stdout.trim();
+    log.warn("[desktop cli]", `CLI command failed`, {
+      args,
+      exitCode: result.exitCode,
+      stdout: stdout.slice(0, 500),
+      stderr: stderr.slice(0, 500),
+      command: invocation.command,
+    });
+    throw new Error(
+      stderr.length > 0
+        ? stderr
+        : `CLI command failed with exit code ${result.exitCode}${stdout.length > 0 ? `\nstdout: ${stdout.slice(0, 200)}` : ""}`,
+    );
   }
 
   const stdout = result.stdout.trim();
   if (stdout.length === 0) {
+    log.warn("[desktop cli]", `CLI command produced no output`, { args });
     throw new Error("CLI command did not produce JSON output.");
   }
 
@@ -308,7 +337,11 @@ export async function runCliJsonCommand(args: string[]): Promise<unknown> {
   // Extract the first valid JSON object or array from the output.
   const jsonStart = stdout.search(/[{[]/);
   if (jsonStart < 0) {
-    throw new Error("CLI command output contained no JSON.");
+    log.warn("[desktop cli]", `CLI command output contained no JSON`, {
+      args,
+      stdout: stdout.slice(0, 500),
+    });
+    throw new Error(`CLI command output contained no JSON. Output: ${stdout.slice(0, 200)}`);
   }
   const jsonText = stdout.slice(jsonStart);
 
@@ -317,6 +350,7 @@ export async function runCliJsonCommand(args: string[]): Promise<unknown> {
   } catch (error) {
     throw new Error(
       `CLI command returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }

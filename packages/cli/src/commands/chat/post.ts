@@ -27,10 +27,12 @@ export async function runPostCommand(
       authorAgentId: resolveChatAuthorAgentId(),
       replyToMessageId: options.replyTo,
     });
-    const [message] = await attachAgentNamesToMessages(client, [toChatMessageRow(payload.message!)]);
+    const [message] = await attachAgentNamesToMessages(client, [
+      toChatMessageRow(payload.message!),
+    ]);
     return {
       type: "single",
-      data: message!,
+      data: message,
       schema: chatMessageSchema,
     };
   } catch (err) {

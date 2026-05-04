@@ -102,7 +102,10 @@ class ScriptedAgentSession implements AgentSession {
     };
   }
 
-  async startTurn(prompt: AgentPromptInput, _options?: AgentRunOptions): Promise<{ turnId: string }> {
+  async startTurn(
+    prompt: AgentPromptInput,
+    _options?: AgentRunOptions,
+  ): Promise<{ turnId: string }> {
     const promptText = typeof prompt === "string" ? prompt : JSON.stringify(prompt);
     const turnId = `turn-${++this.turnCount}`;
     this.interrupted = false;
@@ -183,7 +186,12 @@ class ScriptedAgentSession implements AgentSession {
         turnId,
       });
       if (this.interrupted) {
-        this.emit({ type: "turn_canceled", provider: this.provider, reason: "interrupted", turnId });
+        this.emit({
+          type: "turn_canceled",
+          provider: this.provider,
+          reason: "interrupted",
+          turnId,
+        });
         return;
       }
       this.emit({
@@ -236,7 +244,7 @@ describe("LoopService", () => {
             if (config.title?.includes("worker")) {
               return `worker run ${state.workerRuns}`;
             }
-            return "{\"passed\":true,\"reason\":\"not used\"}";
+            return '{"passed":true,"reason":"not used"}';
           },
         }),
       },
@@ -282,7 +290,7 @@ describe("LoopService", () => {
         claude: new ScriptedAgentClient("claude", {
           async onRun({ config }) {
             verifierConfigs.push(config);
-            return "{\"passed\":true,\"reason\":\"verified\"}";
+            return '{"passed":true,"reason":"verified"}';
           },
         }),
       },
@@ -338,7 +346,7 @@ describe("LoopService", () => {
               writeFileSync(path.join(workspaceDir, "done.txt"), "ok");
               return "created done.txt";
             }
-            return "{\"passed\":true,\"reason\":\"done.txt exists\"}";
+            return '{"passed":true,"reason":"done.txt exists"}';
           },
         }),
       },
@@ -368,15 +376,15 @@ describe("LoopService", () => {
     expect(finalLoop.archive).toBe(true);
     expect(iteration?.workerAgentId).toBeTruthy();
     expect(iteration?.verifierAgentId).toBeTruthy();
-    expect(archivedAgentIds).toEqual([iteration!.workerAgentId!, iteration!.verifierAgentId!]);
+    expect(archivedAgentIds).toEqual([iteration.workerAgentId!, iteration.verifierAgentId!]);
     await storage.flush();
-    await expect(storage.get(iteration!.workerAgentId!)).resolves.toMatchObject({
-      id: iteration!.workerAgentId!,
+    await expect(storage.get(iteration.workerAgentId!)).resolves.toMatchObject({
+      id: iteration.workerAgentId!,
       archivedAt: expect.any(String),
       internal: true,
     });
-    await expect(storage.get(iteration!.verifierAgentId!)).resolves.toMatchObject({
-      id: iteration!.verifierAgentId!,
+    await expect(storage.get(iteration.verifierAgentId!)).resolves.toMatchObject({
+      id: iteration.verifierAgentId!,
       archivedAt: expect.any(String),
       internal: true,
     });
@@ -394,8 +402,8 @@ describe("LoopService", () => {
             }
             const exists = pathExists(path.join(workspaceDir, "done.txt"));
             return exists
-              ? "{\"passed\":true,\"reason\":\"done.txt exists\"}"
-              : "{\"passed\":false,\"reason\":\"done.txt missing\"}";
+              ? '{"passed":true,"reason":"done.txt exists"}'
+              : '{"passed":false,"reason":"done.txt missing"}';
           },
         }),
       },
@@ -424,6 +432,80 @@ describe("LoopService", () => {
     expect(logs.entries.some((entry) => entry.text.includes("Verifier result"))).toBe(true);
   });
 
+  test("defaults worker and verifier modeId to provider's unattended mode", async () => {
+    const workerConfigs: AgentSessionConfig[] = [];
+    const verifierConfigs: AgentSessionConfig[] = [];
+    const manager = new AgentManager({
+      clients: {
+        claude: new ScriptedAgentClient("claude", {
+          async onRun({ config }) {
+            if (config.title?.includes("worker")) {
+              workerConfigs.push(config);
+              writeFileSync(path.join(workspaceDir, "done.txt"), "ok");
+              return "created done.txt";
+            }
+            verifierConfigs.push(config);
+            return '{"passed":true,"reason":"ok"}';
+          },
+        }),
+      },
+      registry: storage,
+      logger,
+    });
+    const service = new LoopService({ paseoHome, agentManager: manager, logger });
+    await service.initialize();
+
+    const loop = await service.runLoop({
+      prompt: "Create done.txt",
+      cwd: workspaceDir,
+      verifyPrompt: "Confirm that done.txt exists in the workspace.",
+      maxIterations: 1,
+    });
+
+    await waitForLoopCompletion(service, loop.id);
+
+    expect(workerConfigs[0]?.modeId).toBe("bypassPermissions");
+    expect(verifierConfigs[0]?.modeId).toBe("bypassPermissions");
+  });
+
+  test("explicit modeId wins over unattended default", async () => {
+    const workerConfigs: AgentSessionConfig[] = [];
+    const verifierConfigs: AgentSessionConfig[] = [];
+    const manager = new AgentManager({
+      clients: {
+        claude: new ScriptedAgentClient("claude", {
+          async onRun({ config }) {
+            if (config.title?.includes("worker")) {
+              workerConfigs.push(config);
+              writeFileSync(path.join(workspaceDir, "done.txt"), "ok");
+              return "created done.txt";
+            }
+            verifierConfigs.push(config);
+            return '{"passed":true,"reason":"ok"}';
+          },
+        }),
+      },
+      registry: storage,
+      logger,
+    });
+    const service = new LoopService({ paseoHome, agentManager: manager, logger });
+    await service.initialize();
+
+    const loop = await service.runLoop({
+      prompt: "Create done.txt",
+      cwd: workspaceDir,
+      modeId: "acceptEdits",
+      verifierModeId: "plan",
+      verifyPrompt: "Confirm that done.txt exists in the workspace.",
+      maxIterations: 1,
+    });
+
+    await waitForLoopCompletion(service, loop.id);
+
+    expect(workerConfigs[0]?.modeId).toBe("acceptEdits");
+    expect(verifierConfigs[0]?.modeId).toBe("plan");
+  });
+
   test("stops a running loop and cancels the active worker", async () => {
     let release: (() => void) | null = null;
     const blocker = new Promise<void>((resolve) => {
@@ -437,7 +519,7 @@ describe("LoopService", () => {
               await blocker;
               return "finished";
             }
-            return "{\"passed\":true,\"reason\":\"ok\"}";
+            return '{"passed":true,"reason":"ok"}';
           },
         }),
       },

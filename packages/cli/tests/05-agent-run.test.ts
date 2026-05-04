@@ -54,7 +54,7 @@ try {
     assert.strictEqual(result.exitCode, 0, "run --help should exit 0");
     assert(result.stdout.includes("-d"), "help should mention -d flag");
     assert(result.stdout.includes("--detach"), "help should mention --detach flag");
-    assert(result.stdout.includes("--name"), "help should mention --name option");
+    assert(result.stdout.includes("--title"), "help should mention --title option");
     assert(result.stdout.includes("--provider"), "help should mention --provider option");
     assert(result.stdout.includes("--mode"), "help should mention --mode option");
     assert(result.stdout.includes("--cwd"), "help should mention --cwd option");
@@ -85,7 +85,7 @@ try {
   {
     console.log("Test 3: run handles daemon not running");
     const result =
-      await $`PASEO_HOST=localhost:${port} PASEO_HOME=${paseoHome} npx paseo run "test prompt"`.nothrow();
+      await $`PASEO_HOST=localhost:${port} PASEO_HOME=${paseoHome} npx paseo run --provider claude "test prompt"`.nothrow();
     // Should fail because daemon not running
     assert.notStrictEqual(result.exitCode, 0, "should fail when daemon not running");
     const output = result.stdout + result.stderr;

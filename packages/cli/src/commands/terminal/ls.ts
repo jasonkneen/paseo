@@ -7,6 +7,8 @@ import {
 } from "./shared.js";
 import { terminalSchema, type TerminalRow, toTerminalRow } from "./schema.js";
 
+type TerminalListEntry = Parameters<typeof toTerminalRow>[0];
+
 export interface TerminalLsOptions extends TerminalCommandOptions {
   all?: boolean;
   cwd?: string;
@@ -20,10 +22,13 @@ export async function runLsCommand(
   const cwd = options.all ? undefined : (options.cwd ?? process.cwd());
 
   try {
-    const payload = cwd === undefined ? await client.listTerminals() : await client.listTerminals(cwd);
+    const payload =
+      cwd === undefined ? await client.listTerminals() : await client.listTerminals(cwd);
     return {
       type: "list",
-      data: payload.terminals.map((terminal) => toTerminalRow(terminal, payload.cwd ?? cwd)),
+      data: payload.terminals.map((terminal: TerminalListEntry) =>
+        toTerminalRow(terminal, payload.cwd ?? cwd),
+      ),
       schema: terminalSchema,
     };
   } catch (err) {

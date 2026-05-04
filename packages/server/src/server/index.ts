@@ -3,7 +3,7 @@ import { loadConfig } from "./config.js";
 import { resolvePaseoHome } from "./paseo-home.js";
 import { createRootLogger } from "./logger.js";
 import { loadPersistedConfig } from "./persisted-config.js";
-import { PidLockError } from "./pid-lock.js";
+import { acquirePidLock, PidLockError, releasePidLock, updatePidLock } from "./pid-lock.js";
 import type { DaemonLifecycleIntent } from "./bootstrap.js";
 
 type SupervisorLifecycleMessage =
@@ -15,31 +15,47 @@ type SupervisorLifecycleMessage =
       reason?: string;
     };
 
-async function main() {
-  let paseoHome: string;
-  let logger: ReturnType<typeof createRootLogger>;
-  let config: ReturnType<typeof loadConfig>;
-  let daemon: Awaited<ReturnType<typeof createPaseoDaemon>> | null = null;
-  let shutdownPromise: Promise<number> | null = null;
-  let exitHookInstalled = false;
+interface BootstrapResult {
+  paseoHome: string;
+  logger: ReturnType<typeof createRootLogger>;
+  config: ReturnType<typeof loadConfig>;
+}
 
+function bootstrapFromEnvironment(): BootstrapResult {
   try {
-    paseoHome = resolvePaseoHome();
+    const paseoHome = resolvePaseoHome();
     const persistedConfig = loadPersistedConfig(paseoHome);
-    logger = createRootLogger(persistedConfig, { paseoHome });
-    config = loadConfig(paseoHome);
+    const logger = createRootLogger(persistedConfig, { paseoHome });
+    const config = loadConfig(paseoHome);
+    return { paseoHome, logger, config };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`${message}\n`);
     process.exit(1);
   }
+}
 
+function applyCliFlagOverrides(config: ReturnType<typeof loadConfig>): void {
   if (process.argv.includes("--no-relay")) {
     config.relayEnabled = false;
   }
   if (process.argv.includes("--no-mcp")) {
     config.mcpEnabled = false;
   }
+  if (process.argv.includes("--no-inject-mcp")) {
+    config.mcpInjectIntoAgents = false;
+  }
+}
+
+async function main() {
+  const { paseoHome, logger, config } = bootstrapFromEnvironment();
+  let daemon: Awaited<ReturnType<typeof createPaseoDaemon>> | null = null;
+  let shutdownPromise: Promise<number> | null = null;
+  let exitHookInstalled = false;
+  const supervised = process.env.PASEO_SUPERVISED === "1" && typeof process.send === "function";
+  let pidLockAcquired = false;
+
+  applyCliFlagOverrides(config);
 
   const installExitHook = () => {
     if (exitHookInstalled || !shutdownPromise) {
@@ -73,6 +89,10 @@ async function main() {
             return 1;
           }
           await daemon.stop();
+          if (pidLockAcquired) {
+            await releasePidLock(paseoHome);
+            pidLockAcquired = false;
+          }
           clearTimeout(forceExit);
           logger.info("Server closed");
           return options?.successExitCode ?? 0;
@@ -131,6 +151,11 @@ async function main() {
   };
 
   try {
+    if (!supervised) {
+      await acquirePidLock(paseoHome, null);
+      pidLockAcquired = true;
+    }
+
     daemon = await createPaseoDaemon(
       {
         ...config,
@@ -139,6 +164,10 @@ async function main() {
       logger,
     );
   } catch (err) {
+    if (pidLockAcquired) {
+      await releasePidLock(paseoHome);
+      pidLockAcquired = false;
+    }
     if (err instanceof PidLockError) {
       logger.error({ pid: err.existingLock?.pid }, err.message);
       process.exit(1);
@@ -149,7 +178,22 @@ async function main() {
 
   try {
     await daemon.start();
+    if (!supervised) {
+      const listenTarget = daemon.getListenTarget();
+      const listen =
+        listenTarget?.type === "tcp"
+          ? `${listenTarget.host}:${listenTarget.port}`
+          : listenTarget?.path;
+      if (!listen) {
+        throw new Error("Daemon did not expose a listen target after startup");
+      }
+      await updatePidLock(paseoHome, { listen });
+    }
   } catch (err) {
+    if (pidLockAcquired) {
+      await releasePidLock(paseoHome);
+      pidLockAcquired = false;
+    }
     if (err instanceof PidLockError) {
       logger.error({ pid: err.existingLock?.pid }, err.message);
       process.exit(1);
@@ -163,19 +207,23 @@ async function main() {
 
   process.on("uncaughtException", (err) => {
     logger.fatal({ err }, "Uncaught exception — daemon crashing");
-    process.exit(1);
+    exitAfterPinoFlush();
   });
 
   process.on("unhandledRejection", (reason) => {
     logger.fatal({ err: reason }, "Unhandled promise rejection — daemon crashing");
-    process.exit(1);
+    exitAfterPinoFlush();
   });
+}
+
+// Give pino async streams a moment to flush the fatal log entry to daemon.log
+// before the process exits. Without this, the last few entries that explain
+// why the daemon crashed can be lost.
+function exitAfterPinoFlush(): void {
+  setTimeout(() => process.exit(1), 200);
 }
 
 main().catch((err) => {
   process.stderr.write(`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
-  // Give pino streams a moment to flush the fatal log entry to daemon.log
-  // before the process exits. Without this, async file streams may lose the
-  // last few entries that explain why the daemon crashed.
-  setTimeout(() => process.exit(1), 200);
+  exitAfterPinoFlush();
 });

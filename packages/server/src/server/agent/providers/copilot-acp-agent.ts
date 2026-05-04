@@ -1,4 +1,5 @@
 import type { Logger } from "pino";
+import { homedir } from "node:os";
 
 import type { AgentCapabilityFlags, AgentMode } from "../agent-sdk-types.js";
 import type { ProviderRuntimeSettings } from "../provider-launch-config.js";
@@ -39,10 +40,10 @@ const COPILOT_MODES: AgentMode[] = [
   },
 ];
 
-type CopilotACPAgentClientOptions = {
+interface CopilotACPAgentClientOptions {
   logger: Logger;
   runtimeSettings?: ProviderRuntimeSettings;
-};
+}
 
 export class CopilotACPAgentClient extends ACPAgentClient {
   constructor(options: CopilotACPAgentClientOptions) {
@@ -63,13 +64,13 @@ export class CopilotACPAgentClient extends ACPAgentClient {
   async getDiagnostic(): Promise<{ diagnostic: string }> {
     try {
       const available = await this.isAvailable();
-      const resolvedBinary = findExecutable("copilot");
+      const resolvedBinary = await findExecutable("copilot");
       let modelsValue = "Not checked";
       let status = formatDiagnosticStatus(available);
 
       if (available) {
         try {
-          const models = await this.listModels();
+          const models = await this.listModels({ cwd: homedir(), force: false });
           modelsValue = String(models.length);
         } catch (error) {
           modelsValue = `Error - ${toDiagnosticErrorMessage(error)}`;
@@ -81,7 +82,7 @@ export class CopilotACPAgentClient extends ACPAgentClient {
 
         if (!modelsValue.startsWith("Error -")) {
           try {
-            await this.listModes();
+            await this.listModes({ cwd: homedir(), force: false });
           } catch (error) {
             status = formatDiagnosticStatus(available, {
               source: "mode fetch",
@@ -97,7 +98,10 @@ export class CopilotACPAgentClient extends ACPAgentClient {
             label: "Binary",
             value: resolvedBinary ?? "not found",
           },
-          { label: "Version", value: resolvedBinary ? resolveBinaryVersion(resolvedBinary) : "unknown" },
+          {
+            label: "Version",
+            value: resolvedBinary ? await resolveBinaryVersion(resolvedBinary) : "unknown",
+          },
           { label: "Models", value: modelsValue },
           { label: "Status", value: status },
         ]),

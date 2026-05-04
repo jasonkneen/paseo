@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { promisify } from "node:util";
 import { z } from "zod";
 import type { Logger } from "pino";
 import { curateAgentActivity } from "./agent/activity-curator.js";
@@ -15,8 +13,9 @@ import type {
   AgentTimelineItem,
   AgentProvider,
 } from "./agent/agent-sdk-types.js";
+import { execCommand, platformShell } from "../utils/spawn.js";
+import { getUnattendedModeId } from "./agent/provider-manifest.js";
 
-const execFileAsync = promisify(execFile);
 const LOOP_ID_LENGTH = 8;
 const DEFAULT_LOOP_PROVIDER: AgentProvider = "claude";
 const MAX_VERIFY_OUTPUT_BYTES = 64 * 1024;
@@ -73,10 +72,12 @@ const LoopRecordSchema = z.object({
   cwd: z.string(),
   provider: z.string(),
   model: z.string().nullable(),
+  modeId: z.string().nullable().default(null),
   workerProvider: z.string().nullable(),
   workerModel: z.string().nullable(),
   verifierProvider: z.string().nullable(),
   verifierModel: z.string().nullable(),
+  verifierModeId: z.string().nullable().default(null),
   verifyPrompt: z.string().nullable(),
   verifyChecks: z.array(z.string()),
   archive: z.boolean(),
@@ -111,10 +112,12 @@ export interface LoopRunOptions {
   cwd: string;
   provider?: AgentProvider;
   model?: string;
+  modeId?: string;
   workerProvider?: AgentProvider;
   workerModel?: string;
   verifierProvider?: AgentProvider;
   verifierModel?: string;
+  verifierModeId?: string;
   verifyPrompt?: string;
   verifyChecks?: string[];
   archive?: boolean;
@@ -256,7 +259,8 @@ async function runVerifyCheck(options: {
 }): Promise<LoopVerifyCheckResult> {
   const startedAt = nowIso();
   try {
-    const result = await execFileAsync("/bin/sh", ["-lc", options.command], {
+    const shell = platformShell();
+    const result = await execCommand(shell.command, [...shell.flag, options.command], {
       cwd: options.cwd,
       maxBuffer: MAX_VERIFY_OUTPUT_BYTES,
     });
@@ -377,10 +381,12 @@ export class LoopService {
       cwd: path.resolve(input.cwd),
       provider: input.provider ?? DEFAULT_LOOP_PROVIDER,
       model: normalizePrompt(input.model, "model"),
+      modeId: normalizePrompt(input.modeId, "modeId"),
       workerProvider: input.workerProvider ?? null,
       workerModel: normalizePrompt(input.workerModel, "workerModel"),
       verifierProvider: input.verifierProvider ?? null,
       verifierModel: normalizePrompt(input.verifierModel, "verifierModel"),
+      verifierModeId: normalizePrompt(input.verifierModeId, "verifierModeId"),
       verifyPrompt,
       verifyChecks,
       archive: input.archive ?? false,
@@ -564,33 +570,41 @@ export class LoopService {
         }
       }
     } catch (error) {
-      if (isAbortError(error)) {
-        this.finishLoop(loop, "stopped", "Loop stopped.");
-        const iteration = loop.activeIteration
-          ? loop.iterations.find((candidate) => candidate.index === loop.activeIteration)
-          : null;
-        if (iteration && iteration.status === "running") {
-          iteration.status = "stopped";
-          iteration.failureReason = "Loop stopped";
-          iteration.workerCompletedAt = nowIso();
-        }
-        await this.persist();
-        return;
-      }
+      await this.handleExecuteLoopError(loop, loopId, error);
+    }
+  }
 
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error({ err: error, loopId }, "Loop execution failed");
-      this.finishLoop(loop, "failed", message);
+  private async handleExecuteLoopError(
+    loop: LoopRecord,
+    loopId: string,
+    error: unknown,
+  ): Promise<void> {
+    if (isAbortError(error)) {
+      this.finishLoop(loop, "stopped", "Loop stopped.");
       const iteration = loop.activeIteration
         ? loop.iterations.find((candidate) => candidate.index === loop.activeIteration)
         : null;
       if (iteration && iteration.status === "running") {
-        iteration.status = "failed";
-        iteration.failureReason = message;
+        iteration.status = "stopped";
+        iteration.failureReason = "Loop stopped";
         iteration.workerCompletedAt = nowIso();
       }
       await this.persist();
+      return;
     }
+
+    const message = error instanceof Error ? error.message : String(error);
+    this.logger.error({ err: error, loopId }, "Loop execution failed");
+    this.finishLoop(loop, "failed", message);
+    const iteration = loop.activeIteration
+      ? loop.iterations.find((candidate) => candidate.index === loop.activeIteration)
+      : null;
+    if (iteration && iteration.status === "running") {
+      iteration.status = "failed";
+      iteration.failureReason = message;
+      iteration.workerCompletedAt = nowIso();
+    }
+    await this.persist();
   }
 
   private async runWorkerIteration(
@@ -598,7 +612,9 @@ export class LoopService {
     iteration: LoopIterationRecord,
     signal: AbortSignal,
   ): Promise<boolean> {
-    const agent = await this.options.agentManager.createAgent(this.buildWorkerConfig(loop, iteration));
+    const agent = await this.options.agentManager.createAgent(
+      this.buildWorkerConfig(loop, iteration),
+    );
     iteration.workerAgentId = agent.id;
     loop.activeWorkerAgentId = agent.id;
     loop.updatedAt = nowIso();
@@ -688,9 +704,7 @@ export class LoopService {
         iteration: iteration.index,
         source: "verify-check",
         level: result.passed ? "info" : "error",
-        text: output
-          ? `exit ${result.exitCode}\n${output}`
-          : `exit ${result.exitCode}`,
+        text: output ? `exit ${result.exitCode}\n${output}` : `exit ${result.exitCode}`,
       });
       loop.updatedAt = nowIso();
       await this.persist();
@@ -736,7 +750,10 @@ export class LoopService {
     try {
       const result = await getStructuredAgentResponse({
         caller: async (nextPrompt) => {
-          const run = await this.options.agentManager.runAgent(verifierAgent.id, this.toPrompt(nextPrompt));
+          const run = await this.options.agentManager.runAgent(
+            verifierAgent.id,
+            this.toPrompt(nextPrompt),
+          );
           return this.resolveFinalText(run.timeline, run.finalText);
         },
         prompt: loop.verifyPrompt,
@@ -779,20 +796,27 @@ export class LoopService {
   }
 
   private buildWorkerConfig(loop: LoopRecord, iteration: LoopIterationRecord): AgentSessionConfig {
+    const provider = loop.workerProvider ?? loop.provider;
     return {
-      provider: loop.workerProvider ?? loop.provider,
+      provider,
       cwd: loop.cwd,
       model: loop.workerModel ?? loop.model ?? undefined,
+      modeId: loop.modeId ?? getUnattendedModeId(provider),
       title: buildWorkerTitle(loop, iteration.index),
       internal: true,
     };
   }
 
-  private buildVerifierConfig(loop: LoopRecord, iteration: LoopIterationRecord): AgentSessionConfig {
+  private buildVerifierConfig(
+    loop: LoopRecord,
+    iteration: LoopIterationRecord,
+  ): AgentSessionConfig {
+    const provider = loop.verifierProvider ?? loop.provider;
     return {
-      provider: loop.verifierProvider ?? loop.provider,
+      provider,
       cwd: loop.cwd,
       model: loop.verifierModel ?? loop.model ?? undefined,
+      modeId: loop.verifierModeId ?? loop.modeId ?? getUnattendedModeId(provider),
       title: buildVerifierTitle(loop, iteration.index),
       internal: true,
     };
@@ -815,7 +839,11 @@ export class LoopService {
     return text;
   }
 
-  private finishLoop(loop: LoopRecord, status: Exclude<LoopStatus, "running">, message: string): void {
+  private finishLoop(
+    loop: LoopRecord,
+    status: Exclude<LoopStatus, "running">,
+    message: string,
+  ): void {
     loop.status = status;
     loop.completedAt = nowIso();
     loop.updatedAt = loop.completedAt;
@@ -830,10 +858,7 @@ export class LoopService {
     });
   }
 
-  private appendLog(
-    loop: LoopRecord,
-    entry: Omit<LoopLogEntry, "seq" | "timestamp">,
-  ): void {
+  private appendLog(loop: LoopRecord, entry: Omit<LoopLogEntry, "seq" | "timestamp">): void {
     loop.logs.push({
       seq: loop.nextLogSeq,
       timestamp: nowIso(),
@@ -852,9 +877,11 @@ export class LoopService {
     if (exact) {
       return exact;
     }
-    const matches = Array.from(this.loops.values()).filter((record) => record.id.startsWith(trimmed));
+    const matches = Array.from(this.loops.values()).filter((record) =>
+      record.id.startsWith(trimmed),
+    );
     if (matches.length === 1) {
-      return matches[0]!;
+      return matches[0];
     }
     if (matches.length > 1) {
       throw new Error(`Loop id prefix is ambiguous: ${trimmed}`);
@@ -869,6 +896,7 @@ export class LoopService {
         left.createdAt.localeCompare(right.createdAt),
       );
       await fs.writeFile(this.storePath, JSON.stringify(records, null, 2), "utf8");
+      return;
     });
     this.persistQueue = nextPersist.catch(() => {});
     await nextPersist;

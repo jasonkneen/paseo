@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Agent } from "@/stores/session-store";
 import { useSessionStore } from "@/stores/session-store";
+import { agentHistoryQueryKey } from "./agent-history-query-key";
 import { __private__, applyArchivedAgentCloseResults } from "./use-archive-agent";
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
@@ -104,23 +105,24 @@ describe("useArchiveAgent", () => {
 
   it("applies archived agent close results to session state and cached lists", async () => {
     const queryClient = new QueryClient();
-    useSessionStore
-      .getState()
-      .initializeSession("server-a", {} as DaemonClient);
-    useSessionStore.getState().setAgents(
-      "server-a",
-      new Map([
-        [
-          "agent-1",
-          makeAgent(),
-        ],
-      ]),
-    );
+    useSessionStore.getState().initializeSession("server-a", {} as DaemonClient);
+    useSessionStore.getState().setAgents("server-a", new Map([["agent-1", makeAgent()]]));
     queryClient.setQueryData(["sidebarAgentsList", "server-a"], {
       entries: [{ agent: { id: "agent-1" } }, { agent: { id: "agent-2" } }],
     });
     queryClient.setQueryData(["allAgents", "server-a"], {
       entries: [{ agent: { id: "agent-1" } }, { agent: { id: "agent-2" } }],
+    });
+    queryClient.setQueryData(agentHistoryQueryKey("server-a"), {
+      pages: [
+        {
+          agents: [
+            { id: "agent-1", archivedAt: null },
+            { id: "agent-2", archivedAt: null },
+          ],
+        },
+      ],
+      pageParams: [null],
     });
 
     applyArchivedAgentCloseResults({
@@ -130,13 +132,66 @@ describe("useArchiveAgent", () => {
     });
 
     expect(
-      useSessionStore.getState().sessions["server-a"]?.agents.get("agent-1")?.archivedAt?.toISOString(),
+      useSessionStore
+        .getState()
+        .sessions["server-a"]?.agents.get("agent-1")
+        ?.archivedAt?.toISOString(),
     ).toBe("2026-04-01T04:00:00.000Z");
     expect(queryClient.getQueryData(["sidebarAgentsList", "server-a"])).toEqual({
       entries: [{ agent: { id: "agent-2" } }],
     });
     expect(queryClient.getQueryData(["allAgents", "server-a"])).toEqual({
       entries: [{ agent: { id: "agent-2" } }],
+    });
+    expect(queryClient.getQueryData(agentHistoryQueryKey("server-a"))).toEqual({
+      pages: [
+        {
+          agents: [
+            { id: "agent-1", archivedAt: new Date("2026-04-01T04:00:00.000Z") },
+            { id: "agent-2", archivedAt: null },
+          ],
+        },
+      ],
+      pageParams: [null],
+    });
+  });
+
+  it("can apply archived agent close results without invalidating cached lists", () => {
+    const queryClient = new QueryClient();
+    useSessionStore.getState().initializeSession("server-a", {} as DaemonClient);
+    useSessionStore.getState().setAgents("server-a", new Map([["agent-1", makeAgent()]]));
+    queryClient.setQueryData(["sidebarAgentsList", "server-a"], {
+      entries: [{ agent: { id: "agent-1" } }, { agent: { id: "agent-2" } }],
+    });
+    queryClient.setQueryData(["allAgents", "server-a"], {
+      entries: [{ agent: { id: "agent-1" } }, { agent: { id: "agent-2" } }],
+    });
+    queryClient.setQueryData(agentHistoryQueryKey("server-a"), {
+      pages: [
+        {
+          agents: [{ id: "agent-1", archivedAt: null }],
+        },
+      ],
+      pageParams: [null],
+    });
+
+    applyArchivedAgentCloseResults({
+      queryClient,
+      serverId: "server-a",
+      results: [{ agentId: "agent-1", archivedAt: "2026-04-01T04:00:00.000Z" }],
+      invalidateQueries: false,
+    });
+
+    expect(queryClient.getQueryState(["sidebarAgentsList", "server-a"])?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(["allAgents", "server-a"])?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(agentHistoryQueryKey("server-a"))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryData(agentHistoryQueryKey("server-a"))).toEqual({
+      pages: [
+        {
+          agents: [{ id: "agent-1", archivedAt: new Date("2026-04-01T04:00:00.000Z") }],
+        },
+      ],
+      pageParams: [null],
     });
   });
 });

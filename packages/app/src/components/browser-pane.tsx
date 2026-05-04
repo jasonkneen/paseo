@@ -1,13 +1,31 @@
 import { Text, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { useMemo } from "react";
 
-export function BrowserPane({ browserId }: { browserId: string }) {
+interface BrowserPaneProps {
+  browserId: string;
+  serverId: string;
+  workspaceId: string;
+  cwd: string | null;
+  isInteractive?: boolean;
+  onFocusPane?: () => void;
+}
+
+export function BrowserPane({ browserId }: BrowserPaneProps) {
   const { theme } = useUnistyles();
+  const titleStyle = useMemo(
+    () => [styles.title, { color: theme.colors.foreground }],
+    [theme.colors.foreground],
+  );
+  const subtitleStyle = useMemo(
+    () => [styles.subtitle, { color: theme.colors.foregroundMuted }],
+    [theme.colors.foregroundMuted],
+  );
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.title, { color: theme.colors.foreground }]}>Browser is desktop-only</Text>
-      <Text style={[styles.subtitle, { color: theme.colors.foregroundMuted }]}>Browser session {browserId}</Text>
+      <Text style={titleStyle}>Browser is desktop-only</Text>
+      <Text style={subtitleStyle}>Browser session {browserId}</Text>
     </View>
   );
 }

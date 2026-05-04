@@ -7,6 +7,11 @@ import { AgentStorage } from "../agent/agent-storage.js";
 import { createTestAgentClients } from "../test-utils/fake-agent-client.js";
 import { createTestLogger } from "../../test-utils/test-logger.js";
 import { ScheduleService } from "./service.js";
+import type { StoredSchedule, ScheduleExecutionResult } from "./types.js";
+
+interface ScheduleServiceInternals {
+  executeSchedule(schedule: StoredSchedule): Promise<ScheduleExecutionResult>;
+}
 
 describe("ScheduleService", () => {
   let tempDir: string;
@@ -171,6 +176,84 @@ describe("ScheduleService", () => {
     );
   });
 
+  test("defaults new-agent modeId to provider's unattended mode", async () => {
+    const manager = new AgentManager({
+      logger: createTestLogger(),
+      clients: createTestAgentClients(),
+      registry: agentStorage,
+    });
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      now: () => now,
+    });
+
+    const created = await service.create({
+      prompt: "Respond with exactly hello",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: {
+          provider: "claude",
+          cwd: tempDir,
+          approvalPolicy: "never",
+        },
+      },
+      maxRuns: 1,
+    });
+
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+
+    const inspected = await service.inspect(created.id);
+    const agentId = inspected.runs[0]?.agentId;
+    expect(agentId).toBeTruthy();
+    const agent = manager.getAgent(agentId!);
+    expect(agent?.currentModeId).toBe("bypassPermissions");
+  });
+
+  test("advances stale nextRunAt on daemon restart", async () => {
+    const service1 = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+
+    const created = await service1.create({
+      prompt: "Periodic check",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", cwd: tempDir },
+      },
+      runOnCreate: false,
+    });
+
+    expect(created.nextRunAt).toBe("2026-01-01T00:01:00.000Z");
+    await service1.stop();
+
+    // Simulate daemon restart 10 minutes later
+    now = new Date("2026-01-01T00:10:00.000Z");
+    const service2 = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+    await service2.start();
+
+    const inspected = await service2.inspect(created.id);
+    expect(new Date(inspected.nextRunAt!).getTime()).toBeGreaterThan(now.getTime());
+    await service2.stop();
+  });
+
   test("keeps schedules paused when an in-flight run finishes after pause", async () => {
     let releaseRun: (() => void) | null = null;
     const runStarted = new Promise<void>((resolve) => {
@@ -225,5 +308,213 @@ describe("ScheduleService", () => {
     expect(inspected.nextRunAt).toBeNull();
     expect(inspected.runs).toHaveLength(1);
     expect(inspected.runs[0]?.status).toBe("succeeded");
+  });
+
+  test("rejects archived target agents before loading them", async () => {
+    const manager = new AgentManager({ logger: createTestLogger() });
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: manager,
+      agentStorage,
+      now: () => now,
+    });
+
+    await agentStorage.upsert({
+      id: "archived-agent",
+      provider: "claude",
+      cwd: tempDir,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      lastActivityAt: now.toISOString(),
+      lastUserMessageAt: null,
+      title: "Archived Agent",
+      labels: {},
+      lastStatus: "closed",
+      lastModeId: "default",
+      config: {
+        modeId: "default",
+      },
+      runtimeInfo: null,
+      features: [],
+      persistence: null,
+      requiresAttention: false,
+      attentionReason: null,
+      attentionTimestamp: null,
+      internal: false,
+      archivedAt: "2026-01-02T00:00:00.000Z",
+    });
+
+    await expect(
+      (service as unknown as ScheduleServiceInternals).executeSchedule({
+        id: "schedule-1",
+        name: null,
+        prompt: "Check archived agent",
+        cadence: { type: "every", everyMs: 60_000 },
+        target: {
+          type: "agent",
+          agentId: "archived-agent",
+        },
+        status: "active",
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        nextRunAt: now.toISOString(),
+        lastRunAt: null,
+        pausedAt: null,
+        expiresAt: null,
+        maxRuns: null,
+        runs: [],
+      }),
+    ).rejects.toThrow("Agent archived-agent is archived");
+  });
+
+  test("defaults --every schedules to fire immediately on creation", async () => {
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+
+    const created = await service.create({
+      prompt: "every default",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", cwd: tempDir },
+      },
+    });
+
+    expect(created.nextRunAt).toBe(now.toISOString());
+  });
+
+  test("--every with runOnCreate=false waits the full interval", async () => {
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+
+    const created = await service.create({
+      prompt: "wait interval",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", cwd: tempDir },
+      },
+      runOnCreate: false,
+    });
+
+    expect(created.nextRunAt).toBe("2026-01-01T00:01:00.000Z");
+  });
+
+  test("--cron defaults to the next cron slot", async () => {
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+
+    const created = await service.create({
+      prompt: "cron default",
+      cadence: { type: "cron", expression: "30 9 * * *" },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", cwd: tempDir },
+      },
+    });
+
+    expect(created.nextRunAt).toBe("2026-01-01T09:30:00.000Z");
+  });
+
+  test("--cron with runOnCreate=true fires immediately on creation", async () => {
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+
+    const created = await service.create({
+      prompt: "cron run-now",
+      cadence: { type: "cron", expression: "30 9 * * *" },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", cwd: tempDir },
+      },
+      runOnCreate: true,
+    });
+
+    expect(created.nextRunAt).toBe(now.toISOString());
+  });
+
+  test("runOnce records a run without changing nextRunAt or completing the schedule", async () => {
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      now: () => now,
+      runner: async (schedule) => ({
+        agentId: "00000000-0000-0000-0000-000000000099",
+        output: `manual:${schedule.prompt}`,
+      }),
+    });
+
+    const created = await service.create({
+      prompt: "manual fire",
+      cadence: { type: "cron", expression: "30 9 * * *" },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", cwd: tempDir },
+      },
+      maxRuns: 1,
+    });
+    expect(created.nextRunAt).toBe("2026-01-01T09:30:00.000Z");
+
+    const after = await service.runOnce(created.id);
+    expect(after.nextRunAt).toBe("2026-01-01T09:30:00.000Z");
+    expect(after.status).toBe("active");
+    expect(after.runs).toHaveLength(1);
+    expect(after.runs[0]).toMatchObject({
+      status: "succeeded",
+      agentId: "00000000-0000-0000-0000-000000000099",
+      output: "manual:manual fire",
+    });
+  });
+
+  test("runOnce rejects completed schedules", async () => {
+    const service = new ScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      now: () => now,
+      runner: async () => ({ agentId: null, output: "ok" }),
+    });
+
+    const created = await service.create({
+      prompt: "one-shot",
+      cadence: { type: "every", everyMs: 60_000 },
+      target: {
+        type: "new-agent",
+        config: { provider: "claude", cwd: tempDir },
+      },
+      maxRuns: 1,
+    });
+    now = new Date("2026-01-01T00:01:00.000Z");
+    await service.tick();
+
+    await expect(service.runOnce(created.id)).rejects.toThrow("already completed");
   });
 });

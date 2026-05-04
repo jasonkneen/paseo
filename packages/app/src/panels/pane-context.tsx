@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useRef, type ReactNode } from "react";
+import React, { createContext, useContext, type ReactNode } from "react";
 import invariant from "tiny-invariant";
 import type { WorkspaceTabTarget } from "@/stores/workspace-tabs-store";
 
@@ -6,7 +6,6 @@ export interface PaneContextValue {
   serverId: string;
   workspaceId: string;
   tabId: string;
-  isPaneFocused: boolean;
   target: WorkspaceTabTarget;
   openTab(target: WorkspaceTabTarget): void;
   closeCurrentTab(): void;
@@ -14,13 +13,30 @@ export interface PaneContextValue {
   openFileInWorkspace(filePath: string): void;
 }
 
-const PaneContext = createContext<PaneContextValue | null>(null);
+export interface PaneFocusContextValue {
+  isWorkspaceFocused: boolean;
+  isPaneFocused: boolean;
+  isInteractive: boolean;
+  focusPane(): void;
+}
 
-/**
- * Stabilizes the context value so that only changes to identity fields
- * (serverId, workspaceId, tabId, isPaneFocused, target) cause consumers
- * to re-render.  Callback changes are absorbed via refs.
- */
+const PaneContext = createContext<PaneContextValue | null>(null);
+const PaneFocusContext = createContext<PaneFocusContextValue | null>(null);
+const noopFocusPane = () => {};
+
+export function createPaneFocusContextValue(input: {
+  isWorkspaceFocused: boolean;
+  isPaneFocused: boolean;
+  onFocusPane?: () => void;
+}): PaneFocusContextValue {
+  return {
+    isWorkspaceFocused: input.isWorkspaceFocused,
+    isPaneFocused: input.isPaneFocused,
+    isInteractive: input.isWorkspaceFocused && input.isPaneFocused,
+    focusPane: input.onFocusPane ?? noopFocusPane,
+  };
+}
+
 export function PaneProvider({
   value,
   children,
@@ -28,37 +44,27 @@ export function PaneProvider({
   value: PaneContextValue;
   children: ReactNode;
 }) {
-  const openTabRef = useRef(value.openTab);
-  openTabRef.current = value.openTab;
-  const closeCurrentTabRef = useRef(value.closeCurrentTab);
-  closeCurrentTabRef.current = value.closeCurrentTab;
-  const retargetCurrentTabRef = useRef(value.retargetCurrentTab);
-  retargetCurrentTabRef.current = value.retargetCurrentTab;
-  const openFileInWorkspaceRef = useRef(value.openFileInWorkspace);
-  openFileInWorkspaceRef.current = value.openFileInWorkspace;
+  return <PaneContext.Provider value={value}>{children}</PaneContext.Provider>;
+}
 
-  const stableValue = useMemo<PaneContextValue>(
-    () => ({
-      serverId: value.serverId,
-      workspaceId: value.workspaceId,
-      tabId: value.tabId,
-      isPaneFocused: value.isPaneFocused,
-      target: value.target,
-      openTab: (target) => openTabRef.current(target),
-      closeCurrentTab: () => closeCurrentTabRef.current(),
-      retargetCurrentTab: (target) => retargetCurrentTabRef.current(target),
-      openFileInWorkspace: (filePath) => openFileInWorkspaceRef.current(filePath),
-    }),
-    // Only re-create when identity fields change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [value.serverId, value.workspaceId, value.tabId, value.isPaneFocused, value.target],
-  );
-
-  return <PaneContext.Provider value={stableValue}>{children}</PaneContext.Provider>;
+export function PaneFocusProvider({
+  value,
+  children,
+}: {
+  value: PaneFocusContextValue;
+  children: ReactNode;
+}) {
+  return <PaneFocusContext.Provider value={value}>{children}</PaneFocusContext.Provider>;
 }
 
 export function usePaneContext(): PaneContextValue {
   const value = useContext(PaneContext);
   invariant(value, "PaneContext is required");
+  return value;
+}
+
+export function usePaneFocus(): PaneFocusContextValue {
+  const value = useContext(PaneFocusContext);
+  invariant(value, "PaneFocusContext is required");
   return value;
 }

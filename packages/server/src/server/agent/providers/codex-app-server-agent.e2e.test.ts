@@ -61,7 +61,11 @@ function responseCompleted(id: string): Record<string, unknown> {
   };
 }
 
-function functionCallEvent(callId: string, name: string, argumentsJson: string): Record<string, unknown> {
+function functionCallEvent(
+  callId: string,
+  name: string,
+  argumentsJson: string,
+): Record<string, unknown> {
   return {
     type: "response.output_item.done",
     item: {
@@ -116,7 +120,11 @@ function requestUserInputSse(callId: string): string {
 }
 
 function assistantMessageSse(text: string): string {
-  return sse([responseCreated("resp-2"), assistantMessageEvent("msg-1", text), responseCompleted("resp-2")]);
+  return sse([
+    responseCreated("resp-2"),
+    assistantMessageEvent("msg-1", text),
+    responseCompleted("resp-2"),
+  ]);
 }
 
 async function startMockResponsesServer(sequence: string[]): Promise<{
@@ -214,21 +222,26 @@ describe("Codex app-server provider (e2e)", () => {
     "lists models and runs a simple prompt",
     async () => {
       const client = new CodexAppServerAgentClient(createTestLogger());
-      const models = await client.listModels();
+      const cwd = mkdtempSync(path.join(os.tmpdir(), "codex-app-server-e2e-"));
+      const models = await client.listModels({ cwd, force: false });
       expect(models.some((m) => m.id.includes("gpt-5.1-codex"))).toBe(true);
 
       const session = await client.createSession({
         provider: "codex",
-        cwd: mkdtempSync(path.join(os.tmpdir(), "codex-app-server-e2e-")),
+        cwd,
         modeId: "auto",
         model: CODEX_TEST_MODEL,
         thinkingOptionId: CODEX_TEST_THINKING_OPTION_ID,
       });
-      expect(session.features?.some((feature) => feature.id === "plan_mode")).toBe(true);
+      try {
+        expect(session.features?.some((feature) => feature.id === "plan_mode")).toBe(true);
 
-      const result = await session.run("Say hello in one sentence.");
-      expect(result.finalText.length).toBeGreaterThan(0);
-      await session.close();
+        const result = await session.run("Say hello in one sentence.");
+        expect(result.finalText.length).toBeGreaterThan(0);
+      } finally {
+        await session.close();
+        rmSync(cwd, { recursive: true, force: true });
+      }
     },
     30000,
   );
@@ -276,10 +289,7 @@ describe("Codex app-server provider (e2e)", () => {
             label: "question permission request",
             predicate: (
               event,
-            ): event is Extract<
-              AgentStreamEvent,
-              { type: "permission_requested" }
-            > =>
+            ): event is Extract<AgentStreamEvent, { type: "permission_requested" }> =>
               event.type === "permission_requested" &&
               event.request.provider === "codex" &&
               event.request.kind === "question" &&
@@ -377,7 +387,7 @@ describe("Codex app-server provider (e2e)", () => {
           ).toBe(true);
 
           const finalAssistantMessage = [...events]
-            .reverse()
+            .toReversed()
             .find((event) => event.type === "timeline" && event.item.type === "assistant_message");
           expect(finalAssistantMessage).toBeDefined();
           if (

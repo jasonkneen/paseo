@@ -1,8 +1,14 @@
 import { describe, expect, test, vi } from "vitest";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import { ClaudeAgentClient, convertClaudeHistoryEntry } from "./claude-agent.js";
-import type { AgentTimelineItem } from "../agent-sdk-types.js";
+import type { AgentTimelineItem, AgentUsage, AgentStreamEvent } from "../agent-sdk-types.js";
+
+interface TestClaudeSession {
+  translateMessageToEvents(message: SDKMessage): AgentStreamEvent[];
+  convertUsage(message: SDKMessage): AgentUsage | undefined;
+}
 
 describe("convertClaudeHistoryEntry", () => {
   test("maps user tool results to timeline items", () => {
@@ -159,6 +165,78 @@ describe("convertClaudeHistoryEntry", () => {
     expect(convertClaudeHistoryEntry(assistantNoiseEntry, mapBlocks)).toEqual([]);
   });
 
+  test("skips <local-command-stdout> messages (model switch, /context, etc.)", () => {
+    // Real entries from Claude Code JSONL history files
+    const modelSwitch = {
+      type: "user",
+      message: {
+        role: "user",
+        content: "<local-command-stdout>Set model to claude-opus-4-6</local-command-stdout>",
+      },
+      userType: "external",
+    };
+
+    const modelSwitchWithAnsi = {
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<local-command-stdout>Set model to \u001b[1mopus (claude-opus-4-6)\u001b[22m</local-command-stdout>",
+      },
+    };
+
+    const contextDump = {
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<local-command-stdout>## Context Usage\n\n**Model:** claude-opus-4-6\n**Tokens:** 19k</local-command-stdout>",
+      },
+    };
+
+    const planMode = {
+      type: "user",
+      message: {
+        role: "user",
+        content: "<local-command-stdout>Enabled plan mode</local-command-stdout>",
+      },
+    };
+
+    const goodbye = {
+      type: "user",
+      message: {
+        role: "user",
+        content: "<local-command-stdout>Bye!</local-command-stdout>",
+      },
+    };
+
+    const empty = {
+      type: "user",
+      message: {
+        role: "user",
+        content: "<local-command-stdout></local-command-stdout>",
+      },
+    };
+
+    const mapBlocks = vi.fn().mockReturnValue([]);
+
+    expect(convertClaudeHistoryEntry(modelSwitch, mapBlocks)).toEqual([]);
+    expect(convertClaudeHistoryEntry(modelSwitchWithAnsi, mapBlocks)).toEqual([]);
+    expect(convertClaudeHistoryEntry(contextDump, mapBlocks)).toEqual([]);
+    expect(convertClaudeHistoryEntry(planMode, mapBlocks)).toEqual([]);
+    expect(convertClaudeHistoryEntry(goodbye, mapBlocks)).toEqual([]);
+    expect(convertClaudeHistoryEntry(empty, mapBlocks)).toEqual([]);
+
+    // Real user messages must NOT be filtered
+    const realMessage = {
+      type: "user",
+      message: { role: "user", content: "fix the bug in auth.ts" },
+    };
+    expect(convertClaudeHistoryEntry(realMessage, mapBlocks)).toEqual([
+      { type: "user_message", text: "fix the bug in auth.ts" },
+    ]);
+  });
+
   test("maps task notifications to synthetic tool calls", () => {
     const entry = {
       type: "system",
@@ -265,9 +343,11 @@ describe("ClaudeAgentClient.listModels", () => {
 
   test("returns hardcoded claude models", async () => {
     const client = new ClaudeAgentClient({ logger });
-    const models = await client.listModels();
+    const models = await client.listModels({ cwd: "/tmp/claude-models", force: false });
 
     expect(models.map((m) => m.id)).toEqual([
+      "claude-opus-4-7[1m]",
+      "claude-opus-4-7",
       "claude-opus-4-6[1m]",
       "claude-opus-4-6",
       "claude-sonnet-4-6",
@@ -287,12 +367,13 @@ describe("ClaudeAgentClient.listModels", () => {
 describe("ClaudeAgentSession context window usage", () => {
   const logger = createTestLogger();
 
-  async function createSessionForTest(): Promise<any> {
+  async function createSessionForTest(): Promise<TestClaudeSession> {
     const client = new ClaudeAgentClient({ logger });
-    return client.createSession({
+    const session = await client.createSession({
       provider: "claude",
       cwd: process.cwd(),
     });
+    return session as unknown as TestClaudeSession;
   }
 
   function createQueryFactoryForTurns(turns: Array<Array<Record<string, unknown>>>) {
@@ -300,7 +381,7 @@ describe("ClaudeAgentSession context window usage", () => {
       const queuedMessages: Array<Record<string, unknown>> = [];
       const waiters: Array<() => void> = [];
       let turnIndex = 0;
-      let closed = false;
+      const closedRef = { value: false };
 
       function wakeNextWaiter() {
         const waiter = waiters.shift();
@@ -320,13 +401,13 @@ describe("ClaudeAgentSession context window usage", () => {
             enqueue(message);
           }
         }
-        closed = true;
+        closedRef.value = true;
         wakeNextWaiter();
       })();
 
       return {
         next: vi.fn(async () => {
-          while (queuedMessages.length === 0 && !closed) {
+          while (queuedMessages.length === 0 && !closedRef.value) {
             await new Promise<void>((resolve) => {
               waiters.push(resolve);
             });
@@ -338,12 +419,12 @@ describe("ClaudeAgentSession context window usage", () => {
         }),
         interrupt: vi.fn(async () => undefined),
         return: vi.fn(async () => {
-          closed = true;
+          closedRef.value = true;
           wakeNextWaiter();
           return undefined;
         }),
         close: vi.fn(() => {
-          closed = true;
+          closedRef.value = true;
           wakeNextWaiter();
         }),
         setPermissionMode: vi.fn(async () => undefined),
@@ -357,6 +438,68 @@ describe("ClaudeAgentSession context window usage", () => {
       };
     });
   }
+
+  test("passes persistSession through to the Claude SDK query options", async () => {
+    const createResultTurn = (sessionId: string) => [
+      {
+        type: "system",
+        subtype: "init",
+        session_id: sessionId,
+        permissionMode: "default",
+      },
+      {
+        type: "result",
+        subtype: "success",
+        duration_ms: 10,
+        duration_api_ms: 8,
+        is_error: false,
+        num_turns: 1,
+        result: "done",
+        stop_reason: null,
+        total_cost_usd: 0,
+        usage: {},
+        permission_denials: [],
+        uuid: `${sessionId}-result`,
+        session_id: sessionId,
+      },
+    ];
+
+    const nonPersistedQueryFactory = createQueryFactoryForTurns([createResultTurn("session-1")]);
+    const nonPersistedClient = new ClaudeAgentClient({
+      logger,
+      queryFactory: nonPersistedQueryFactory,
+    });
+    const nonPersistedSession = await nonPersistedClient.createSession(
+      {
+        provider: "claude",
+        cwd: process.cwd(),
+      },
+      undefined,
+      { persistSession: false },
+    );
+    await nonPersistedSession.run("turn");
+    await nonPersistedSession.close();
+
+    expect(nonPersistedQueryFactory.mock.calls[0]?.[0].options.persistSession).toBe(false);
+
+    const persistedQueryFactory = createQueryFactoryForTurns([createResultTurn("session-2")]);
+    const persistedClient = new ClaudeAgentClient({
+      logger,
+      queryFactory: persistedQueryFactory,
+    });
+    const persistedSession = await persistedClient.createSession(
+      {
+        provider: "claude",
+        cwd: process.cwd(),
+      },
+      undefined,
+      { persistSession: true },
+    );
+    await persistedSession.run("turn");
+    await persistedSession.close();
+
+    expect(persistedQueryFactory.mock.calls[0]?.[0].options.persistSession).toBe(true);
+  });
 
   test("convertUsage includes contextWindowMaxTokens and derives used tokens from result usage as initial fallback", async () => {
     const session = await createSessionForTest();
@@ -510,7 +653,7 @@ describe("ClaudeAgentSession context window usage", () => {
         duration_ms: 50,
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
 
     expect(events).toContainEqual({
       type: "usage_updated",
@@ -537,7 +680,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
 
     expect(events).toContainEqual({
       type: "usage_updated",
@@ -564,7 +707,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
 
     const events = session.translateMessageToEvents({
       type: "stream_event",
@@ -575,7 +718,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
 
     expect(events).toContainEqual({
       type: "usage_updated",
@@ -773,7 +916,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
     session.translateMessageToEvents({
       type: "stream_event",
       event: {
@@ -783,7 +926,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
 
     const usage = session.convertUsage({
       type: "result",
@@ -821,7 +964,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
     session.translateMessageToEvents({
       type: "stream_event",
       event: {
@@ -831,7 +974,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
 
     const secondStartEvents = session.translateMessageToEvents({
       type: "stream_event",
@@ -846,7 +989,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
 
     expect(secondStartEvents).toContainEqual({
       type: "usage_updated",
@@ -865,7 +1008,7 @@ describe("ClaudeAgentSession context window usage", () => {
         },
       },
       session_id: "session-1",
-    } as any);
+    } as unknown as SDKMessage);
 
     const usage = session.convertUsage({
       type: "result",

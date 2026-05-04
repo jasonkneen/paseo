@@ -6,18 +6,22 @@ import type {
 
 export function defaultWebSocketFactory(
   url: string,
-  _options?: { headers?: Record<string, string> },
+  options?: { headers?: Record<string, string>; protocols?: string[] },
 ): WebSocketLike {
-  const globalWs = (globalThis as { WebSocket?: any }).WebSocket;
+  const globalWs = (
+    globalThis as {
+      WebSocket?: new (url: string, protocols?: string | string[]) => WebSocketLike;
+    }
+  ).WebSocket;
   if (!globalWs) {
     throw new Error("WebSocket is not available in this runtime");
   }
-  return new globalWs(url);
+  return new globalWs(url, options?.protocols);
 }
 
 export function createWebSocketTransportFactory(factory: WebSocketFactory): DaemonTransportFactory {
-  return ({ url, headers }) => {
-    const ws = factory(url, { headers });
+  return ({ url, headers, protocols }) => {
+    const ws = factory(url, { headers, protocols });
     if ("binaryType" in ws) {
       try {
         ws.binaryType = "arraybuffer";
@@ -32,7 +36,19 @@ export function createWebSocketTransportFactory(factory: WebSocketFactory): Daem
         }
         ws.send(data);
       },
-      close: (code?: number, reason?: string) => ws.close(code, reason),
+      close: (code?: number, reason?: string) => {
+        // Node's `ws` may emit an `error` when a connecting socket is closed before the
+        // handshake completes. Keep a temporary no-op handler attached so cleanup during
+        // connect timeouts does not crash the CLI with an unhandled error event.
+        const suppressEarlyCloseError = bindTemporaryEarlyCloseErrorHandler(ws);
+        try {
+          ws.close(code, reason);
+        } finally {
+          if (typeof ws.on !== "function" && typeof ws.addEventListener !== "function") {
+            suppressEarlyCloseError();
+          }
+        }
+      },
       onOpen: (handler) => bindWsHandler(ws, "open", handler),
       onClose: (handler) => bindWsHandler(ws, "close", handler),
       onError: (handler) => bindWsHandler(ws, "error", handler),
@@ -41,10 +57,56 @@ export function createWebSocketTransportFactory(factory: WebSocketFactory): Daem
   };
 }
 
+function bindTemporaryEarlyCloseErrorHandler(ws: WebSocketLike): () => void {
+  const noop = () => {};
+
+  if (typeof ws.addEventListener === "function") {
+    ws.addEventListener("error", noop);
+    const removeOnClose = bindWsHandler(ws, "close", () => {
+      removeOnClose();
+      if (typeof ws.removeEventListener === "function") {
+        ws.removeEventListener("error", noop);
+      }
+    });
+    return () => {
+      removeOnClose();
+      if (typeof ws.removeEventListener === "function") {
+        ws.removeEventListener("error", noop);
+      }
+    };
+  }
+
+  if (typeof ws.on === "function") {
+    ws.on("error", noop);
+    const removeOnClose = bindWsHandler(ws, "close", () => {
+      removeOnClose();
+      if (typeof ws.off === "function") {
+        ws.off("error", noop);
+        return;
+      }
+      if (typeof ws.removeListener === "function") {
+        ws.removeListener("error", noop);
+      }
+    });
+    return () => {
+      removeOnClose();
+      if (typeof ws.off === "function") {
+        ws.off("error", noop);
+        return;
+      }
+      if (typeof ws.removeListener === "function") {
+        ws.removeListener("error", noop);
+      }
+    };
+  }
+
+  return () => {};
+}
+
 export function bindWsHandler(
   ws: WebSocketLike,
   event: "open" | "close" | "error" | "message",
-  handler: (...args: any[]) => void,
+  handler: (...args: unknown[]) => void,
 ): () => void {
   if (typeof ws.addEventListener === "function") {
     ws.addEventListener(event, handler);
@@ -66,12 +128,13 @@ export function bindWsHandler(
       }
     };
   }
-  const prop = `on${event}` as "onopen" | "onclose" | "onerror" | "onmessage";
-  const previous = (ws as any)[prop];
-  (ws as any)[prop] = handler;
+  const prop = `on${event}`;
+  const wsRecord = ws as unknown as Record<string, unknown>;
+  const previous = wsRecord[prop];
+  wsRecord[prop] = handler;
   return () => {
-    if ((ws as any)[prop] === handler) {
-      (ws as any)[prop] = previous ?? null;
+    if (wsRecord[prop] === handler) {
+      wsRecord[prop] = previous ?? null;
     }
   };
 }

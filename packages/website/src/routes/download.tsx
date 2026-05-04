@@ -26,9 +26,16 @@ export const Route = createFileRoute("/download")({
   component: Download,
 });
 
+const homebrewTrigger = (
+  <span className="inline-flex items-center justify-center rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background hover:bg-foreground/85 transition-colors">
+    Homebrew
+  </span>
+);
+
 function Download() {
-  const { version } = useRelease();
-  const urls = downloadUrls(version);
+  const release = useRelease();
+  const { version } = release;
+  const urls = downloadUrls(release);
 
   return (
     <div className="min-h-screen bg-background">
@@ -90,9 +97,7 @@ function Download() {
         </header>
 
         <h1 className="text-3xl md:text-4xl font-semibold tracking-tight mb-2">Download</h1>
-        <p className="text-muted-foreground mb-10">
-          v{version}
-        </p>
+        <p className="text-muted-foreground mb-10">v{version}</p>
 
         {/* Desktop */}
         <section className="rounded-xl border border-border bg-card/40 p-6 md:p-8 mb-6">
@@ -112,11 +117,7 @@ function Download() {
                 <DownloadPill href={urls.macAppleSilicon} label="Apple Silicon" />
                 <DownloadPill href={urls.macIntel} label="Intel" />
                 <CommandDialog
-                  trigger={
-                    <span className="inline-flex items-center justify-center rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background hover:bg-foreground/85 transition-colors">
-                      Homebrew
-                    </span>
-                  }
+                  trigger={homebrewTrigger}
                   title="Install via Homebrew"
                   command="brew install --cask paseo"
                 />
@@ -131,9 +132,10 @@ function Download() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <DownloadPill
-                  href={urls.windowsExe}
-                  label="Download"
+                  href={urls.windowsExeX64}
+                  label={urls.windowsExeArm64 ? "Intel / x64" : "Download"}
                 />
+                {urls.windowsExeArm64 && <DownloadPill href={urls.windowsExeArm64} label="ARM64" />}
               </div>
             </div>
 
@@ -144,10 +146,7 @@ function Download() {
                 <span className="font-medium">Linux</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                <DownloadPill
-                  href={urls.linuxAppImage}
-                  label="AppImage"
-                />
+                <DownloadPill href={urls.linuxAppImage} label="AppImage" />
                 <DownloadPill href={urls.linuxDeb} label="DEB" />
                 <DownloadPill href={urls.linuxRpm} label="RPM" />
               </div>
@@ -170,15 +169,8 @@ function Download() {
                 <span className="font-medium">Android</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                <DownloadPill
-                  href={playStoreUrl}
-                  label="Play Store"
-                  external
-                />
-                <DownloadPill
-                  href={urls.androidApk}
-                  label="APK"
-                />
+                <DownloadPill href={playStoreUrl} label="Play Store" external />
+                <DownloadPill href={urls.androidApk} label="APK" />
               </div>
             </div>
 
@@ -189,11 +181,7 @@ function Download() {
                 <span className="font-medium">iOS</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                <DownloadPill
-                  href={appStoreUrl}
-                  label="App Store"
-                  external
-                />
+                <DownloadPill href={appStoreUrl} label="App Store" external />
               </div>
             </div>
           </div>
@@ -213,11 +201,7 @@ function Download() {
                 <span className="font-medium">Web App</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                <DownloadPill
-                  href={webAppUrl}
-                  label="Open"
-                  external
-                />
+                <DownloadPill href={webAppUrl} label="Open" external />
               </div>
             </div>
 

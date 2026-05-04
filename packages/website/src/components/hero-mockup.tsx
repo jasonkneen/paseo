@@ -27,6 +27,9 @@ import {
 } from "lucide-react";
 import { ClaudeIcon, CodexIcon, SourceControlIcon } from "~/components/mockup";
 
+const USER_BUBBLE_STYLE = { borderRadius: "16px 2px 16px 16px" };
+const NEW_BADGE_STYLE = { backgroundColor: "rgba(46, 160, 67, 0.2)" };
+
 // ── Stagger timing ──────────────────────────────────────
 
 const D = {
@@ -58,7 +61,12 @@ const CHAT: ChatItem[] = [
   { type: "text", text: "I'll break this down into planning and implementation.", bold: true },
   { type: "tool", label: "Run plan-technical", summary: "codex · plan-technical", status: "done" },
   { type: "tool", label: "Run plan-design", summary: "claude · plan-design", status: "done" },
-  { type: "tool", label: "Wait for agents", summary: "plan-technical  plan-design", status: "done" },
+  {
+    type: "tool",
+    label: "Wait for agents",
+    summary: "plan-technical  plan-design",
+    status: "done",
+  },
   { type: "text", text: "Got the plans. Spinning up Codex for implementation.", bold: true },
   { type: "tool", label: "Run implement", summary: "codex · 12 files changed", status: "done" },
   { type: "text", text: "Implementation done. Requesting review from Claude." },
@@ -68,28 +76,39 @@ const CHAT: ChatItem[] = [
 
 // ── Sidebar data ────────────────────────────────────────
 
-type SidebarWorkspace = {
+interface SidebarWorkspace {
   name: string;
   kind: "checkout" | "worktree";
   status: "running" | "done" | "idle" | "syncing";
   selected?: boolean;
   diffStat?: { additions: number; deletions: number };
   pr?: { number: number; state: "open" | "merged" | "closed" };
-};
+}
 
-type SidebarProject = {
+interface SidebarProject {
   initial: string;
   name: string;
   workspaces: SidebarWorkspace[];
-};
+}
 
 const SIDEBAR_PROJECTS: SidebarProject[] = [
   {
     initial: "A",
     name: "acme/returns-app",
     workspaces: [
-      { name: "main", kind: "checkout", status: "syncing", selected: true, diffStat: { additions: 247, deletions: 15 } },
-      { name: "feat/dashboard", kind: "worktree", status: "done", pr: { number: 142, state: "open" } },
+      {
+        name: "main",
+        kind: "checkout",
+        status: "syncing",
+        selected: true,
+        diffStat: { additions: 247, deletions: 15 },
+      },
+      {
+        name: "feat/dashboard",
+        kind: "worktree",
+        status: "done",
+        pr: { number: 142, state: "open" },
+      },
     ],
   },
   {
@@ -97,7 +116,13 @@ const SIDEBAR_PROJECTS: SidebarProject[] = [
     name: "acme/payments",
     workspaces: [
       { name: "main", kind: "checkout", status: "idle" },
-      { name: "fix/stripe-webhook", kind: "worktree", status: "done", diffStat: { additions: 38, deletions: 4 }, pr: { number: 89, state: "merged" } },
+      {
+        name: "fix/stripe-webhook",
+        kind: "worktree",
+        status: "done",
+        diffStat: { additions: 38, deletions: 4 },
+        pr: { number: 89, state: "merged" },
+      },
     ],
   },
   {
@@ -105,26 +130,29 @@ const SIDEBAR_PROJECTS: SidebarProject[] = [
     name: "acme/infra",
     workspaces: [
       { name: "main", kind: "checkout", status: "idle" },
-      { name: "feat/k8s-autoscale", kind: "worktree", status: "syncing", diffStat: { additions: 91, deletions: 3 } },
+      {
+        name: "feat/k8s-autoscale",
+        kind: "worktree",
+        status: "syncing",
+        diffStat: { additions: 91, deletions: 3 },
+      },
     ],
   },
   {
     initial: "D",
     name: "acme/design-system",
-    workspaces: [
-      { name: "main", kind: "checkout", status: "idle" },
-    ],
+    workspaces: [{ name: "main", kind: "checkout", status: "idle" }],
   },
 ];
 
 // ── Tab data ─────────────────────────────────────────────
 
-type TabDef = {
+interface TabDef {
   name: string;
   provider: "claude" | "codex" | "terminal";
   done: boolean;
   active?: boolean;
-};
+}
 
 const TABS: TabDef[] = [
   { name: "Orchestrator", provider: "claude", done: false, active: true },
@@ -135,64 +163,176 @@ const TABS: TabDef[] = [
 // ── Diff data ──────────────────────────────────────────
 
 type DiffLineType = "add" | "remove" | "context" | "header";
-type DiffLine = {
+interface DiffLine {
   type: DiffLineType;
   ln: string | null;
   content?: string;
   tokens?: Array<{ text: string; cls: string }>;
-};
+}
 
 const DIFF_LINES: DiffLine[] = [
-  { type: "add", ln: "1", tokens: [{ text: "import", cls: "text-syn-keyword" }, { text: " { ", cls: "text-syn-punctuation" }, { text: "useState", cls: "text-syn-variable" }, { text: " } ", cls: "text-syn-punctuation" }, { text: "from", cls: "text-syn-keyword" }, { text: ' "react"', cls: "text-syn-string" }] },
-  { type: "add", ln: "2", tokens: [{ text: "import", cls: "text-syn-keyword" }, { text: " { ", cls: "text-syn-punctuation" }, { text: "ReturnTable", cls: "text-syn-variable" }, { text: " } ", cls: "text-syn-punctuation" }, { text: "from", cls: "text-syn-keyword" }, { text: ' "./components"', cls: "text-syn-string" }] },
+  {
+    type: "add",
+    ln: "1",
+    tokens: [
+      { text: "import", cls: "text-syn-keyword" },
+      { text: " { ", cls: "text-syn-punctuation" },
+      { text: "useState", cls: "text-syn-variable" },
+      { text: " } ", cls: "text-syn-punctuation" },
+      { text: "from", cls: "text-syn-keyword" },
+      { text: ' "react"', cls: "text-syn-string" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "2",
+    tokens: [
+      { text: "import", cls: "text-syn-keyword" },
+      { text: " { ", cls: "text-syn-punctuation" },
+      { text: "ReturnTable", cls: "text-syn-variable" },
+      { text: " } ", cls: "text-syn-punctuation" },
+      { text: "from", cls: "text-syn-keyword" },
+      { text: ' "./components"', cls: "text-syn-string" },
+    ],
+  },
   { type: "add", ln: "3", tokens: [] },
-  { type: "add", ln: "4", tokens: [{ text: "export", cls: "text-syn-keyword" }, { text: " function", cls: "text-syn-keyword" }, { text: " Dashboard", cls: "text-syn-function" }, { text: "() {", cls: "text-syn-punctuation" }] },
-  { type: "add", ln: "5", tokens: [{ text: "  const", cls: "text-syn-keyword" }, { text: " [returns, setReturns]", cls: "text-syn-variable" }, { text: " = ", cls: "text-syn-operator" }, { text: "useState", cls: "text-syn-function" }, { text: "([])", cls: "text-syn-punctuation" }] },
-  { type: "add", ln: "6", tokens: [{ text: "  const", cls: "text-syn-keyword" }, { text: " [filter, setFilter]", cls: "text-syn-variable" }, { text: " = ", cls: "text-syn-operator" }, { text: "useState", cls: "text-syn-function" }, { text: '("all")', cls: "text-syn-string" }] },
+  {
+    type: "add",
+    ln: "4",
+    tokens: [
+      { text: "export", cls: "text-syn-keyword" },
+      { text: " function", cls: "text-syn-keyword" },
+      { text: " Dashboard", cls: "text-syn-function" },
+      { text: "() {", cls: "text-syn-punctuation" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "5",
+    tokens: [
+      { text: "  const", cls: "text-syn-keyword" },
+      { text: " [returns, setReturns]", cls: "text-syn-variable" },
+      { text: " = ", cls: "text-syn-operator" },
+      { text: "useState", cls: "text-syn-function" },
+      { text: "([])", cls: "text-syn-punctuation" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "6",
+    tokens: [
+      { text: "  const", cls: "text-syn-keyword" },
+      { text: " [filter, setFilter]", cls: "text-syn-variable" },
+      { text: " = ", cls: "text-syn-operator" },
+      { text: "useState", cls: "text-syn-function" },
+      { text: '("all")', cls: "text-syn-string" },
+    ],
+  },
   { type: "add", ln: "7", tokens: [] },
-  { type: "add", ln: "8", tokens: [{ text: "  ", cls: "text-syn-punctuation" }, { text: "return", cls: "text-syn-keyword" }, { text: " (", cls: "text-syn-punctuation" }] },
-  { type: "add", ln: "9", tokens: [{ text: "    <", cls: "text-syn-punctuation" }, { text: "main", cls: "text-syn-tag" }, { text: " className", cls: "text-syn-property" }, { text: '="', cls: "text-syn-punctuation" }, { text: "min-h-screen p-8", cls: "text-syn-string" }, { text: '">', cls: "text-syn-punctuation" }] },
-  { type: "add", ln: "10", tokens: [{ text: "      <", cls: "text-syn-punctuation" }, { text: "h1", cls: "text-syn-tag" }, { text: ">Customer Returns</", cls: "text-syn-variable" }, { text: "h1", cls: "text-syn-tag" }, { text: ">", cls: "text-syn-punctuation" }] },
-  { type: "add", ln: "11", tokens: [{ text: "      <", cls: "text-syn-punctuation" }, { text: "FilterBar", cls: "text-syn-tag" }, { text: " value", cls: "text-syn-property" }, { text: "={", cls: "text-syn-punctuation" }, { text: "filter", cls: "text-syn-variable" }, { text: "}", cls: "text-syn-punctuation" }, { text: " onChange", cls: "text-syn-property" }, { text: "={", cls: "text-syn-punctuation" }, { text: "setFilter", cls: "text-syn-variable" }, { text: "} />", cls: "text-syn-punctuation" }] },
-  { type: "add", ln: "12", tokens: [{ text: "      <", cls: "text-syn-punctuation" }, { text: "ReturnTable", cls: "text-syn-tag" }, { text: " data", cls: "text-syn-property" }, { text: "={", cls: "text-syn-punctuation" }, { text: "returns", cls: "text-syn-variable" }, { text: "} />", cls: "text-syn-punctuation" }] },
-  { type: "add", ln: "13", tokens: [{ text: "      <", cls: "text-syn-punctuation" }, { text: "StatusChart", cls: "text-syn-tag" }, { text: " data", cls: "text-syn-property" }, { text: "={", cls: "text-syn-punctuation" }, { text: "returns", cls: "text-syn-variable" }, { text: "} />", cls: "text-syn-punctuation" }] },
-  { type: "add", ln: "14", tokens: [{ text: "    </", cls: "text-syn-punctuation" }, { text: "main", cls: "text-syn-tag" }, { text: ">", cls: "text-syn-punctuation" }] },
+  {
+    type: "add",
+    ln: "8",
+    tokens: [
+      { text: "  ", cls: "text-syn-punctuation" },
+      { text: "return", cls: "text-syn-keyword" },
+      { text: " (", cls: "text-syn-punctuation" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "9",
+    tokens: [
+      { text: "    <", cls: "text-syn-punctuation" },
+      { text: "main", cls: "text-syn-tag" },
+      { text: " className", cls: "text-syn-property" },
+      { text: '="', cls: "text-syn-punctuation" },
+      { text: "min-h-screen p-8", cls: "text-syn-string" },
+      { text: '">', cls: "text-syn-punctuation" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "10",
+    tokens: [
+      { text: "      <", cls: "text-syn-punctuation" },
+      { text: "h1", cls: "text-syn-tag" },
+      { text: ">Customer Returns</", cls: "text-syn-variable" },
+      { text: "h1", cls: "text-syn-tag" },
+      { text: ">", cls: "text-syn-punctuation" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "11",
+    tokens: [
+      { text: "      <", cls: "text-syn-punctuation" },
+      { text: "FilterBar", cls: "text-syn-tag" },
+      { text: " value", cls: "text-syn-property" },
+      { text: "={", cls: "text-syn-punctuation" },
+      { text: "filter", cls: "text-syn-variable" },
+      { text: "}", cls: "text-syn-punctuation" },
+      { text: " onChange", cls: "text-syn-property" },
+      { text: "={", cls: "text-syn-punctuation" },
+      { text: "setFilter", cls: "text-syn-variable" },
+      { text: "} />", cls: "text-syn-punctuation" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "12",
+    tokens: [
+      { text: "      <", cls: "text-syn-punctuation" },
+      { text: "ReturnTable", cls: "text-syn-tag" },
+      { text: " data", cls: "text-syn-property" },
+      { text: "={", cls: "text-syn-punctuation" },
+      { text: "returns", cls: "text-syn-variable" },
+      { text: "} />", cls: "text-syn-punctuation" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "13",
+    tokens: [
+      { text: "      <", cls: "text-syn-punctuation" },
+      { text: "StatusChart", cls: "text-syn-tag" },
+      { text: " data", cls: "text-syn-property" },
+      { text: "={", cls: "text-syn-punctuation" },
+      { text: "returns", cls: "text-syn-variable" },
+      { text: "} />", cls: "text-syn-punctuation" },
+    ],
+  },
+  {
+    type: "add",
+    ln: "14",
+    tokens: [
+      { text: "    </", cls: "text-syn-punctuation" },
+      { text: "main", cls: "text-syn-tag" },
+      { text: ">", cls: "text-syn-punctuation" },
+    ],
+  },
   { type: "add", ln: "15", tokens: [{ text: "  )", cls: "text-syn-punctuation" }] },
   { type: "add", ln: "16", tokens: [{ text: "}", cls: "text-syn-punctuation" }] },
 ];
 
 // ── Implementation agent chat data ──────────────────────
 
-const IMPLEMENT_CHAT: ChatItem[] = [
-  { type: "text", text: "Starting implementation of the returns dashboard.", bold: true },
-  { type: "tool", label: "Edit file", summary: "src/pages/dashboard.tsx", status: "done" },
-  { type: "tool", label: "Edit file", summary: "src/components/return-table.tsx", status: "done" },
-  { type: "tool", label: "Edit file", summary: "src/components/filter-bar.tsx", status: "done" },
-  { type: "tool", label: "Edit file", summary: "src/components/status-chart.tsx", status: "done" },
-  { type: "tool", label: "Run command", summary: "npm run typecheck", status: "done" },
-  { type: "text", text: "Typecheck passes. Adding API route and data fetching." },
-  { type: "tool", label: "Edit file", summary: "src/api/returns.ts", status: "done" },
-  { type: "tool", label: "Edit file", summary: "src/hooks/use-returns.ts", status: "done" },
-  { type: "tool", label: "Run command", summary: "npm run typecheck", status: "running" },
-];
-
 // ── Terminal log lines ─────────────────────────────────
 
 const TERMINAL_LINES = [
-  { text: "$ npm run dev", cls: "text-mock-fg" },
-  { text: "", cls: "" },
-  { text: "> acme-returns@0.1.0 dev", cls: "text-mock-fg-muted" },
-  { text: "> next dev --turbopack", cls: "text-mock-fg-muted" },
-  { text: "", cls: "" },
-  { text: "  ▲ Next.js 15.3.1 (Turbopack)", cls: "text-mock-fg" },
-  { text: "  - Local:   http://localhost:3000", cls: "text-mock-fg-muted" },
-  { text: "", cls: "" },
-  { text: " ✓ Starting...", cls: "text-mock-green" },
-  { text: " ✓ Ready in 1.2s", cls: "text-mock-green" },
-  { text: " ○ Compiling /dashboard ...", cls: "text-mock-fg-muted" },
-  { text: " ✓ Compiled /dashboard in 340ms", cls: "text-mock-green" },
-  { text: " ○ Compiling /api/returns ...", cls: "text-mock-fg-muted" },
-  { text: " ✓ Compiled /api/returns in 120ms", cls: "text-mock-green" },
+  { id: "cmd", text: "$ npm run dev", cls: "text-mock-fg" },
+  { id: "blank1", text: "", cls: "" },
+  { id: "pkg", text: "> acme-returns@0.1.0 dev", cls: "text-mock-fg-muted" },
+  { id: "pkg-cmd", text: "> next dev --turbopack", cls: "text-mock-fg-muted" },
+  { id: "blank2", text: "", cls: "" },
+  { id: "next-ver", text: "  ▲ Next.js 15.3.1 (Turbopack)", cls: "text-mock-fg" },
+  { id: "next-local", text: "  - Local:   http://localhost:3000", cls: "text-mock-fg-muted" },
+  { id: "blank3", text: "", cls: "" },
+  { id: "starting", text: " ✓ Starting...", cls: "text-mock-green" },
+  { id: "ready", text: " ✓ Ready in 1.2s", cls: "text-mock-green" },
+  { id: "compiling-dashboard", text: " ○ Compiling /dashboard ...", cls: "text-mock-fg-muted" },
+  { id: "compiled-dashboard", text: " ✓ Compiled /dashboard in 340ms", cls: "text-mock-green" },
+  { id: "compiling-api", text: " ○ Compiling /api/returns ...", cls: "text-mock-fg-muted" },
+  { id: "compiled-api", text: " ✓ Compiled /api/returns in 120ms", cls: "text-mock-green" },
 ];
 
 // ── Sub-components ──────────────────────────────────────
@@ -207,15 +347,27 @@ function TrafficLights() {
   );
 }
 
-function ProviderIcon({ provider, muted = false }: { provider: "claude" | "codex" | "terminal"; muted?: boolean }) {
+function ProviderIcon({
+  provider,
+  muted = false,
+}: {
+  provider: "claude" | "codex" | "terminal";
+  muted?: boolean;
+}) {
   const cls = muted ? "text-mock-fg-muted" : "text-mock-fg";
   if (provider === "terminal") return <SquareTerminal size={13} className={cls} />;
-  return provider === "claude"
-    ? <ClaudeIcon size={13} className={cls} />
-    : <CodexIcon size={13} className={cls} />;
+  return provider === "claude" ? (
+    <ClaudeIcon size={13} className={cls} />
+  ) : (
+    <CodexIcon size={13} className={cls} />
+  );
 }
 
-function TabBarAction({ icon: Icon }: { icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }> }) {
+function TabBarAction({
+  icon: Icon,
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
+}) {
   return (
     <div className="w-4 h-5 flex items-center justify-center flex-shrink-0">
       <Icon size={12} strokeWidth={1.5} className="text-mock-fg-muted" />
@@ -227,16 +379,23 @@ function PaneTabBar({ tabs, focused = false }: { tabs: TabDef[]; focused?: boole
   return (
     <div className="flex items-stretch h-7 bg-mock-surface0 border-b border-mock-border flex-shrink-0">
       {tabs.map((tab) => (
-        <div key={tab.name} className="flex items-center gap-1.5 px-2 border-r border-mock-border relative min-w-0">
+        <div
+          key={tab.name}
+          className="flex items-center gap-1.5 px-2 border-r border-mock-border relative min-w-0"
+        >
           {tab.active && (
-            <div className={`absolute top-0 left-0 right-0 h-0.5 ${focused ? "bg-mock-accent" : "bg-mock-border-accent"}`} />
+            <div
+              className={`absolute top-0 left-0 right-0 h-0.5 ${focused ? "bg-mock-accent" : "bg-mock-border-accent"}`}
+            />
           )}
 
           <div className="relative flex-shrink-0">
             <ProviderIcon provider={tab.provider} muted={!tab.active} />
           </div>
 
-          <span className={`text-[11px] truncate ${tab.active ? "text-mock-fg" : "text-mock-fg-muted"}`}>
+          <span
+            className={`text-[11px] truncate ${tab.active ? "text-mock-fg" : "text-mock-fg-muted"}`}
+          >
             {tab.name}
           </span>
 
@@ -253,7 +412,15 @@ function PaneTabBar({ tabs, focused = false }: { tabs: TabDef[]; focused?: boole
   );
 }
 
-function Composer({ provider, model, focused = false }: { provider: "claude" | "codex"; model: string; focused?: boolean }) {
+function Composer({
+  provider,
+  model,
+  focused = false,
+}: {
+  provider: "claude" | "codex";
+  model: string;
+  focused?: boolean;
+}) {
   const Icon = provider === "claude" ? ClaudeIcon : CodexIcon;
   return (
     <div className="px-3 pb-3 flex-shrink-0">
@@ -291,16 +458,115 @@ function Composer({ provider, model, focused = false }: { provider: "claude" | "
   );
 }
 
+function prStateLabel(state: "open" | "merged" | "closed"): string {
+  if (state === "open") return "Open";
+  if (state === "merged") return "Merged";
+  return "Closed";
+}
+
+function WorkspaceIcon({ workspace }: { workspace: SidebarWorkspace }) {
+  if (workspace.status === "syncing") return <SyncedLoader size={11} />;
+  const icon =
+    workspace.kind === "worktree" ? (
+      <FolderGit2 size={14} className="text-mock-fg-muted" />
+    ) : (
+      <Monitor size={14} className="text-mock-fg-muted" />
+    );
+  return (
+    <>
+      {icon}
+      {workspace.status !== "idle" && (
+        <div className="absolute bottom-0 right-0">
+          <WorkspaceStatusDot status={workspace.status} />
+        </div>
+      )}
+    </>
+  );
+}
+
+function SidebarWorkspaceRow({ workspace }: { workspace: SidebarWorkspace }) {
+  return (
+    <div className={`mb-1 mx-1.5 rounded-lg ${workspace.selected ? "bg-mock-surface1" : ""}`}>
+      <div className="flex items-center gap-2 min-h-[28px] py-1 pl-[22px] pr-1">
+        <div className="relative w-[14px] h-4 flex-shrink-0 flex items-center justify-center">
+          <WorkspaceIcon workspace={workspace} />
+        </div>
+        <span className="text-[12px] text-mock-fg/[0.76] font-normal truncate flex-1 min-w-0 leading-[1.4]">
+          {workspace.name}
+        </span>
+        {workspace.diffStat && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <span className="text-[10px] text-mock-green-400 font-normal leading-none">
+              +{workspace.diffStat.additions}
+            </span>
+            <span className="text-[10px] text-mock-red font-normal leading-none">
+              -{workspace.diffStat.deletions}
+            </span>
+          </div>
+        )}
+      </div>
+      {workspace.pr && (
+        <div className="flex items-center gap-1 pl-[42px] pr-2 pb-0.5">
+          <GitPullRequest size={11} className="text-mock-fg-muted" />
+          <span className="text-[10px] text-mock-fg-muted leading-none truncate">
+            #{workspace.pr.number} · {prStateLabel(workspace.pr.state)}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function diffLineBg(type: DiffLineType): string {
+  if (type === "add") return "bg-mock-diff-add";
+  if (type === "remove") return "bg-mock-diff-remove";
+  return "bg-mock-surface1";
+}
+
+function diffLineNumCls(type: DiffLineType): string {
+  if (type === "add") return "text-mock-green-400";
+  if (type === "remove") return "text-mock-red";
+  return "text-mock-fg-muted";
+}
+
+function DiffLineRow({ line }: { line: DiffLine }) {
+  const lineBg = diffLineBg(line.type);
+  const lineNumCls = diffLineNumCls(line.type);
+  return (
+    <div className={`flex items-stretch ${lineBg}`}>
+      <div className="w-8 border-r border-mock-border flex-shrink-0 flex items-center justify-end">
+        <code className={`text-[10px] font-mono ${lineNumCls} select-none pr-2 py-[1px]`}>
+          {line.ln ?? ""}
+        </code>
+      </div>
+      <code className="text-[10px] font-mono text-mock-fg pl-3 pr-3 py-[1px] whitespace-pre flex-1 min-w-0">
+        {line.tokens?.map((tok) => (
+          <span key={`${tok.cls}:${tok.text}`} className={tok.cls}>
+            {tok.text}
+          </span>
+        ))}
+      </code>
+    </div>
+  );
+}
+
+function chatItemKey(item: ChatItem): string {
+  if (item.type === "user") return `user-${item.text}`;
+  if (item.type === "tool") return `tool-${item.label}-${item.summary ?? ""}`;
+  return `text-${item.text}`;
+}
+
 function ChatMessages({ items }: { items: ChatItem[] }) {
   return (
     <div className="flex-1 overflow-hidden px-2 py-2">
-      {items.map((item, i) => {
+      {items.map((item) => {
+        const key = chatItemKey(item);
         if (item.type === "user") {
           return (
-            <div key={i} className="flex justify-end py-1">
+            <div key={key} className="flex justify-end py-1">
               <div
                 className="bg-mock-surface2 px-2.5 py-1.5 max-w-[85%] leading-none"
-                style={{ borderRadius: "16px 2px 16px 16px" }}
+                style={USER_BUBBLE_STYLE}
               >
                 <span className="text-[11px] text-mock-fg leading-none">{item.text}</span>
               </div>
@@ -311,7 +577,7 @@ function ChatMessages({ items }: { items: ChatItem[] }) {
           const isDone = item.status === "done";
           return (
             <div
-              key={i}
+              key={key}
               className="flex items-center rounded-lg px-2 py-[1px] -mx-[6px] border border-transparent"
             >
               <div className="w-[22px] h-[22px] rounded-full flex items-center justify-center flex-shrink-0 mr-1">
@@ -337,7 +603,7 @@ function ChatMessages({ items }: { items: ChatItem[] }) {
         }
         return (
           <p
-            key={i}
+            key={key}
             className={`text-[11px] px-2 py-[1px] text-mock-fg leading-[1.5] ${item.bold ? "font-medium" : ""}`}
           >
             {item.text}
@@ -357,21 +623,12 @@ function ChatArea() {
   );
 }
 
-function ImplementPane() {
-  return (
-    <div className="flex flex-col flex-1 min-w-0 min-h-0 bg-mock-surface0">
-      <ChatMessages items={IMPLEMENT_CHAT} />
-      <Composer provider="codex" model="gpt-5.4" />
-    </div>
-  );
-}
-
 function TerminalPane() {
   return (
     <div className="flex flex-col flex-1 min-w-0 min-h-0 bg-mock-surface0">
       <div className="flex-1 overflow-hidden px-3 py-2">
-        {TERMINAL_LINES.map((line, i) => (
-          <div key={i} className="leading-[1.3]">
+        {TERMINAL_LINES.map((line) => (
+          <div key={line.id} className="leading-[1.3]">
             <code className={`text-[10px] font-mono ${line.cls} whitespace-pre`}>{line.text}</code>
           </div>
         ))}
@@ -416,8 +673,10 @@ function ExplorerSidebar() {
           <span className="text-[11px] text-mock-fg-muted truncate min-w-0"> src/pages</span>
           <span
             className="text-[10px] text-mock-green-400 px-2 py-[2px] rounded-md flex-shrink-0"
-            style={{ backgroundColor: "rgba(46, 160, 67, 0.2)" }}
-          >New</span>
+            style={NEW_BADGE_STYLE}
+          >
+            New
+          </span>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0 ml-1">
           <span className="text-[11px] text-mock-green-400">+16</span>
@@ -427,25 +686,9 @@ function ExplorerSidebar() {
 
       {/* Diff lines */}
       <div className="overflow-hidden bg-mock-surface1">
-        {DIFF_LINES.map((line, i) => {
-          const isAdd = line.type === "add";
-          const isRemove = line.type === "remove";
-          const lineBg = isAdd ? "bg-mock-diff-add" : isRemove ? "bg-mock-diff-remove" : "bg-mock-surface1";
-          const lineNumCls = isAdd ? "text-mock-green-400" : isRemove ? "text-mock-red" : "text-mock-fg-muted";
-
-          return (
-            <div key={i} className={`flex items-stretch ${lineBg}`}>
-              <div className="w-8 border-r border-mock-border flex-shrink-0 flex items-center justify-end">
-                <code className={`text-[10px] font-mono ${lineNumCls} select-none pr-2 py-[1px]`}>{line.ln ?? ""}</code>
-              </div>
-              <code className="text-[10px] font-mono text-mock-fg pl-3 pr-3 py-[1px] whitespace-pre flex-1 min-w-0">
-                {line.tokens?.map((tok, j) => (
-                  <span key={j} className={tok.cls}>{tok.text}</span>
-                ))}
-              </code>
-            </div>
-          );
-        })}
+        {DIFF_LINES.map((line) => (
+          <DiffLineRow key={`${line.type}-${line.ln ?? "blank"}`} line={line} />
+        ))}
       </div>
 
       {/* Collapsed file rows */}
@@ -456,7 +699,10 @@ function ExplorerSidebar() {
         { name: "returns.ts", dir: "src/api", added: 12, removed: 5 },
         { name: "index.tsx", dir: "src/pages", added: 6, removed: 2 },
       ].map((file) => (
-        <div key={file.name} className="flex items-center justify-between pl-2 pr-2 py-1.5 border-b border-mock-border">
+        <div
+          key={file.name}
+          className="flex items-center justify-between pl-2 pr-2 py-1.5 border-b border-mock-border"
+        >
           <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
             <ChevronRight size={10} className="text-mock-fg-muted flex-shrink-0" />
             <span className="text-[11px] text-mock-fg flex-shrink-0">{file.name}</span>
@@ -464,8 +710,10 @@ function ExplorerSidebar() {
             {file.isNew && (
               <span
                 className="text-[10px] text-mock-green-400 px-2 py-[2px] rounded-md flex-shrink-0"
-                style={{ backgroundColor: "rgba(46, 160, 67, 0.2)" }}
-              >New</span>
+                style={NEW_BADGE_STYLE}
+              >
+                New
+              </span>
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0 ml-1">
@@ -485,7 +733,39 @@ function ExplorerSidebar() {
 const DOT_SEQUENCE = [0, 1, 3, 5, 4, 2] as const;
 const SYNCED_LOADER_DURATION_MS = 950;
 const DOT_COUNT = 6;
+const DOT_INDICES = Array.from({ length: DOT_COUNT }, (_, i) => i);
 const STEP_MS = SYNCED_LOADER_DURATION_MS / DOT_COUNT; // 158.333…ms per step
+
+interface SyncedLoaderDotProps {
+  dotIndex: number;
+  dotSize: number;
+  gap: number;
+}
+
+function SyncedLoaderDot({ dotIndex, dotSize, gap }: SyncedLoaderDotProps) {
+  const col = dotIndex % 2;
+  const row = Math.floor(dotIndex / 2);
+  const sequenceIndex = DOT_SEQUENCE.indexOf(dotIndex as (typeof DOT_SEQUENCE)[number]);
+  const delayMs = -(sequenceIndex * STEP_MS);
+  const style = React.useMemo(
+    () => ({
+      position: "absolute" as const,
+      left: col * (dotSize + gap),
+      top: row * (dotSize + gap),
+      width: dotSize,
+      height: dotSize,
+      borderRadius: "50%",
+      backgroundColor: "#f59e0b",
+      animationName: "synced-snake-dot",
+      animationDuration: `${SYNCED_LOADER_DURATION_MS}ms`,
+      animationTimingFunction: "linear",
+      animationIterationCount: "infinite",
+      animationDelay: `${delayMs}ms`,
+    }),
+    [col, row, dotSize, gap, delayMs],
+  );
+  return <div style={style} />;
+}
 
 function SyncedLoader({ size = 11 }: { size?: number }) {
   const gap = Math.max(1, Math.round(size * 0.12));
@@ -493,38 +773,34 @@ function SyncedLoader({ size = 11 }: { size?: number }) {
   const gridW = dotSize * 2 + gap;
   const gridH = dotSize * 3 + gap * 2;
 
+  const outerStyle = React.useMemo(
+    () => ({
+      width: size,
+      height: size,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+    }),
+    [size],
+  );
+
+  const innerStyle = React.useMemo(
+    () => ({ position: "relative" as const, width: gridW, height: gridH }),
+    [gridW, gridH],
+  );
+
   return (
-    <div style={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-      <div style={{ position: "relative", width: gridW, height: gridH }}>
-        {Array.from({ length: DOT_COUNT }).map((_, dotIndex) => {
-          const col = dotIndex % 2;
-          const row = Math.floor(dotIndex / 2);
-          // The snake sequence index for this dot: when is it the "head"?
-          const sequenceIndex = DOT_SEQUENCE.indexOf(dotIndex as (typeof DOT_SEQUENCE)[number]);
-          // Negative delay syncs the animation so this dot is the head at t=0 when sequenceIndex=0.
-          // At t=0, headIndex should be 0, meaning sequenceIndex=0 dot is the head.
-          // Each dot is shifted by sequenceIndex steps back in time.
-          const delayMs = -(sequenceIndex * STEP_MS);
-          return (
-            <div
-              key={dotIndex}
-              style={{
-                position: "absolute",
-                left: col * (dotSize + gap),
-                top: row * (dotSize + gap),
-                width: dotSize,
-                height: dotSize,
-                borderRadius: "50%",
-                backgroundColor: "#f59e0b",
-                animationName: "synced-snake-dot",
-                animationDuration: `${SYNCED_LOADER_DURATION_MS}ms`,
-                animationTimingFunction: "linear",
-                animationIterationCount: "infinite",
-                animationDelay: `${delayMs}ms`,
-              }}
-            />
-          );
-        })}
+    <div style={outerStyle}>
+      <div style={innerStyle}>
+        {DOT_INDICES.map((dotIndex) => (
+          <SyncedLoaderDot
+            key={`dot-${dotIndex}`}
+            dotIndex={dotIndex}
+            dotSize={dotSize}
+            gap={gap}
+          />
+        ))}
       </div>
     </div>
   );
@@ -560,7 +836,9 @@ function Sidebar() {
             {/* Project row — icon aligns with traffic lights / sessions */}
             <div className="flex items-center gap-2 min-h-[32px] py-1.5 pl-3 pr-2">
               <div className="w-4 h-4 rounded-sm border border-mock-border flex items-center justify-center flex-shrink-0">
-                <span className="text-[9px] text-mock-fg-muted leading-none">{project.initial}</span>
+                <span className="text-[9px] text-mock-fg-muted leading-none">
+                  {project.initial}
+                </span>
               </div>
               <span className="text-[13px] text-mock-fg font-normal truncate flex-1 min-w-0 leading-5">
                 {project.name}
@@ -569,44 +847,7 @@ function Sidebar() {
 
             {/* Workspace rows — indented one level */}
             {project.workspaces.map((workspace) => (
-              <div key={workspace.name} className={`mb-1 mx-1.5 rounded-lg ${workspace.selected ? "bg-mock-surface1" : ""}`}>
-                <div className="flex items-center gap-2 min-h-[28px] py-1 pl-[22px] pr-1">
-                  <div className="relative w-[14px] h-4 flex-shrink-0 flex items-center justify-center">
-                    {workspace.status === "syncing" ? (
-                      <SyncedLoader size={11} />
-                    ) : (
-                      <>
-                        {workspace.kind === "worktree"
-                          ? <FolderGit2 size={14} className="text-mock-fg-muted" />
-                          : <Monitor size={14} className="text-mock-fg-muted" />
-                        }
-                        {workspace.status !== "idle" && (
-                          <div className="absolute bottom-0 right-0">
-                            <WorkspaceStatusDot status={workspace.status} />
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <span className="text-[12px] text-mock-fg/[0.76] font-normal truncate flex-1 min-w-0 leading-[1.4]">
-                    {workspace.name}
-                  </span>
-                  {workspace.diffStat && (
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <span className="text-[10px] text-mock-green-400 font-normal leading-none">+{workspace.diffStat.additions}</span>
-                      <span className="text-[10px] text-mock-red font-normal leading-none">-{workspace.diffStat.deletions}</span>
-                    </div>
-                  )}
-                </div>
-                {workspace.pr && (
-                  <div className="flex items-center gap-1 pl-[42px] pr-2 pb-0.5">
-                    <GitPullRequest size={11} className="text-mock-fg-muted" />
-                    <span className="text-[10px] text-mock-fg-muted leading-none truncate">
-                      #{workspace.pr.number} · {workspace.pr.state === "open" ? "Open" : workspace.pr.state === "merged" ? "Merged" : "Closed"}
-                    </span>
-                  </div>
-                )}
-              </div>
+              <SidebarWorkspaceRow key={workspace.name} workspace={workspace} />
             ))}
           </div>
         ))}
@@ -631,6 +872,75 @@ function Sidebar() {
   );
 }
 
+const TERMINAL_TABS: TabDef[] = [
+  { name: "npm run dev", provider: "terminal", done: false, active: true },
+];
+
+function TitleBarLeft() {
+  return (
+    <div className="flex items-center gap-2 flex-1 min-w-0">
+      <div className="px-2 py-1 rounded-lg flex items-center justify-center flex-shrink-0">
+        <PanelLeft size={14} className="text-mock-fg-muted" />
+      </div>
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <span className="text-[13px] font-light text-mock-fg truncate flex-shrink-0">main</span>
+        <span className="text-[13px] text-mock-fg-muted truncate flex-shrink min-w-0">
+          acme/returns-app
+        </span>
+        <div className="px-2 py-1 rounded-lg flex items-center justify-center flex-shrink-0">
+          <Ellipsis size={14} className="text-mock-fg-muted" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TitleBarRight() {
+  return (
+    <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+      <div className="flex items-stretch rounded-md border border-mock-border-accent overflow-hidden">
+        <div className="flex items-center gap-2 px-3 py-1">
+          <GitCommitHorizontal size={12} className="text-mock-fg-muted flex-shrink-0" />
+          <span className="text-[11px] text-mock-fg font-normal">Commit</span>
+        </div>
+        <div className="flex items-center justify-center w-7 border-l border-mock-border-accent">
+          <ChevronDown size={12} className="text-mock-fg-muted" />
+        </div>
+      </div>
+      <div className="flex items-center gap-2 px-3 py-1 rounded-md">
+        <SourceControlIcon size={14} className="text-mock-fg-muted" />
+        <span className="text-[11px] font-normal text-mock-green-400">+247</span>
+        <span className="text-[11px] font-normal text-mock-red">-15</span>
+      </div>
+    </div>
+  );
+}
+
+function DesktopSplitPanes() {
+  return (
+    <div className="flex flex-1 min-h-0">
+      {/* Left pane: all agent tabs + chat */}
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
+        <motion.div {...fade(D.tabs)}>
+          <PaneTabBar tabs={TABS} focused />
+        </motion.div>
+        <motion.div {...fade(D.chat)} className="flex-1 flex min-h-0">
+          <ChatArea />
+        </motion.div>
+      </div>
+
+      {/* Resize handle */}
+      <div className="w-px bg-mock-border flex-shrink-0" />
+
+      {/* Right pane: terminal only */}
+      <motion.div {...fade(D.chat)} className="flex flex-col flex-1 min-w-0 min-h-0">
+        <PaneTabBar tabs={TERMINAL_TABS} />
+        <TerminalPane />
+      </motion.div>
+    </div>
+  );
+}
+
 // ── Desktop Mockup ──────────────────────────────────────
 
 function DesktopMockup() {
@@ -649,82 +959,41 @@ function DesktopMockup() {
     return () => window.removeEventListener("resize", updateScale);
   }, []);
 
+  const containerStyle = React.useMemo(() => ({ height: `${1200 * (9 / 16) * scale}px` }), [scale]);
+  const innerStyle = React.useMemo(() => ({ width: 1200, transform: `scale(${scale})` }), [scale]);
+
   return (
-    <div ref={containerRef} className="w-full overflow-hidden" style={{ height: `${1200 * (9 / 16) * scale}px` }}>
+    <div ref={containerRef} className="w-full overflow-hidden" style={containerStyle}>
       <div
         className="mx-auto rounded-xl overflow-hidden border border-mock-border bg-mock-surface0 shadow-[6px_6px_0_rgba(0,0,0,0.4)] origin-top-left"
-        style={{ width: 1200, transform: `scale(${scale})` }}
+        style={innerStyle}
       >
         {/* Top-level: left sidebar | center column | explorer sidebar — all full height */}
         <div className="flex aspect-video">
-        {/* Left sidebar — full height */}
-        <motion.div {...fade(D.sidebar)} className="contents">
-          <Sidebar />
-        </motion.div>
-
-        {/* Center column: title bar + split panes */}
-        <div className="flex flex-col flex-1 min-w-0 min-h-0">
-          {/* Title bar — belongs to center column only */}
-          <motion.div {...fade(D.titleBar)} className="flex items-center h-10 px-2 bg-mock-surface0 border-b border-mock-border flex-shrink-0">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <div className="px-2 py-1 rounded-lg flex items-center justify-center flex-shrink-0">
-                <PanelLeft size={14} className="text-mock-fg-muted" />
-              </div>
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="text-[13px] font-light text-mock-fg truncate flex-shrink-0">main</span>
-                <span className="text-[13px] text-mock-fg-muted truncate flex-shrink min-w-0">acme/returns-app</span>
-                <div className="px-2 py-1 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Ellipsis size={14} className="text-mock-fg-muted" />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-              <div className="flex items-stretch rounded-md border border-mock-border-accent overflow-hidden">
-                <div className="flex items-center gap-2 px-3 py-1">
-                  <GitCommitHorizontal size={12} className="text-mock-fg-muted flex-shrink-0" />
-                  <span className="text-[11px] text-mock-fg font-normal">Commit</span>
-                </div>
-                <div className="flex items-center justify-center w-7 border-l border-mock-border-accent">
-                  <ChevronDown size={12} className="text-mock-fg-muted" />
-                </div>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1 rounded-md">
-                <SourceControlIcon size={14} className="text-mock-fg-muted" />
-                <span className="text-[11px] font-normal text-mock-green-400">+247</span>
-                <span className="text-[11px] font-normal text-mock-red">-15</span>
-              </div>
-            </div>
+          {/* Left sidebar — full height */}
+          <motion.div {...fade(D.sidebar)} className="contents">
+            <Sidebar />
           </motion.div>
 
-          {/* Split panes */}
-          <div className="flex flex-1 min-h-0">
-            {/* Left pane: all agent tabs + chat */}
-            <div className="flex flex-col flex-1 min-w-0 min-h-0">
-              <motion.div {...fade(D.tabs)}>
-                <PaneTabBar tabs={TABS} focused />
-              </motion.div>
-              <motion.div {...fade(D.chat)} className="flex-1 flex min-h-0">
-                <ChatArea />
-              </motion.div>
-            </div>
-
-            {/* Resize handle */}
-            <div className="w-px bg-mock-border flex-shrink-0" />
-
-            {/* Right pane: terminal only */}
-            <motion.div {...fade(D.chat)} className="flex flex-col flex-1 min-w-0 min-h-0">
-              <PaneTabBar tabs={[{ name: "npm run dev", provider: "terminal", done: false, active: true }]} />
-              <TerminalPane />
+          {/* Center column: title bar + split panes */}
+          <div className="flex flex-col flex-1 min-w-0 min-h-0">
+            {/* Title bar — belongs to center column only */}
+            <motion.div
+              {...fade(D.titleBar)}
+              className="flex items-center h-10 px-2 bg-mock-surface0 border-b border-mock-border flex-shrink-0"
+            >
+              <TitleBarLeft />
+              <TitleBarRight />
             </motion.div>
-          </div>
-        </div>
 
-        {/* Explorer sidebar — full height, pushes center column */}
-        <motion.div {...fade(D.diffPanel)} className="contents">
-          <ExplorerSidebar />
-        </motion.div>
-      </div>
+            <DesktopSplitPanes />
+          </div>
+
+          {/* Explorer sidebar — full height, pushes center column */}
+          <motion.div {...fade(D.diffPanel)} className="contents">
+            <ExplorerSidebar />
+          </motion.div>
+        </div>
       </div>
     </div>
   );

@@ -1,8 +1,11 @@
 import type { Options as ClaudeAgentOptions } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentAttachment } from "../../shared/messages.js";
 
 export type AgentProvider = string;
 
-export type AgentMetadata = { [key: string]: unknown };
+export interface AgentMetadata {
+  [key: string]: unknown;
+}
 
 /**
  * Stdio-based MCP server (spawns a subprocess).
@@ -39,15 +42,17 @@ export interface McpSseServerConfig {
  */
 export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig | McpSseServerConfig;
 
-export type AgentMode = {
+export interface AgentMode {
   id: string;
   label: string;
   description?: string;
-};
+  icon?: string;
+  colorTier?: string;
+}
 
 export type ProviderStatus = "ready" | "loading" | "error" | "unavailable";
 
-export type AgentModelDefinition = {
+export interface AgentModelDefinition {
   provider: AgentProvider;
   id: string;
   label: string;
@@ -56,26 +61,30 @@ export type AgentModelDefinition = {
   metadata?: AgentMetadata;
   thinkingOptions?: AgentSelectOption[];
   defaultThinkingOptionId?: string;
-};
+}
 
-export type AgentSelectOption = {
+export interface AgentSelectOption {
   id: string;
   label: string;
   description?: string;
   isDefault?: boolean;
   metadata?: AgentMetadata;
-};
+}
 
 export interface ProviderSnapshotEntry {
   provider: AgentProvider;
   status: ProviderStatus;
+  enabled: boolean;
   error?: string;
   models?: AgentModelDefinition[];
   modes?: AgentMode[];
   fetchedAt?: string;
+  label?: string;
+  description?: string;
+  defaultModeId?: string | null;
 }
 
-export type AgentFeatureToggle = {
+export interface AgentFeatureToggle {
   type: "toggle";
   id: string;
   label: string;
@@ -83,9 +92,9 @@ export type AgentFeatureToggle = {
   tooltip?: string;
   icon?: string;
   value: boolean;
-};
+}
 
-export type AgentFeatureSelect = {
+export interface AgentFeatureSelect {
   type: "select";
   id: string;
   label: string;
@@ -94,47 +103,48 @@ export type AgentFeatureSelect = {
   icon?: string;
   value: string | null;
   options: AgentSelectOption[];
-};
+}
 
 export type AgentFeature = AgentFeatureToggle | AgentFeatureSelect;
 
-export type AgentCapabilityFlags = {
+export interface AgentCapabilityFlags {
   supportsStreaming: boolean;
   supportsSessionPersistence: boolean;
   supportsDynamicModes: boolean;
   supportsMcpServers: boolean;
   supportsReasoningStream: boolean;
   supportsToolInvocations: boolean;
-};
+}
 
-export type AgentPersistenceHandle = {
+export interface AgentPersistenceHandle {
   provider: AgentProvider;
   sessionId: string;
   /** Provider specific handle (Codex thread id, Claude resume token, etc). */
   nativeHandle?: string;
   metadata?: AgentMetadata;
-};
+}
 
 export type AgentPromptContentBlock =
   | { type: "text"; text: string }
-  | { type: "image"; data: string; mimeType: string };
+  | { type: "image"; data: string; mimeType: string }
+  | AgentAttachment;
 
 export type AgentPromptInput = string | AgentPromptContentBlock[];
 
-export type AgentRunOptions = {
+export interface AgentRunOptions {
   outputSchema?: unknown;
   resumeFrom?: AgentPersistenceHandle;
   maxThinkingTokens?: number;
-};
+}
 
-export type AgentUsage = {
+export interface AgentUsage {
   inputTokens?: number;
   cachedInputTokens?: number;
   outputTokens?: number;
   totalCostUsd?: number;
   contextWindowMaxTokens?: number;
   contextWindowUsedTokens?: number;
-};
+}
 
 export const TOOL_CALL_ICON_NAMES = [
   "wrench",
@@ -214,6 +224,7 @@ export type ToolCallDetail =
         index: number;
         command: string;
         cwd: string;
+        log: string;
         status: "running" | "completed" | "failed";
         exitCode: number | null;
         durationMs?: number;
@@ -224,8 +235,9 @@ export type ToolCallDetail =
       type: "sub_agent";
       subAgentType?: string;
       description?: string;
+      childSessionId?: string;
       log: string;
-      actions: Array<{
+      actions?: Array<{
         index: number;
         toolName: string;
         summary?: string;
@@ -243,17 +255,18 @@ export type ToolCallDetail =
     }
   | {
       type: "unknown";
-      input: unknown | null;
-      output: unknown | null;
+      input: unknown;
+      output: unknown;
     };
 
-type ToolCallBase = {
+interface ToolCallBase {
+  [key: string]: unknown;
   type: "tool_call";
   callId: string;
   name: string;
   detail: ToolCallDetail;
   metadata?: Record<string, unknown>;
-};
+}
 
 type ToolCallRunningTimelineItem = ToolCallBase & {
   status: "running";
@@ -281,12 +294,13 @@ export type ToolCallTimelineItem =
   | ToolCallFailedTimelineItem
   | ToolCallCanceledTimelineItem;
 
-export type CompactionTimelineItem = {
+export interface CompactionTimelineItem {
+  [key: string]: unknown;
   type: "compaction";
   status: "loading" | "completed";
   trigger?: "auto" | "manual";
   preTokens?: number;
-};
+}
 
 export type AgentTimelineItem =
   | { type: "user_message"; text: string; messageId?: string }
@@ -303,6 +317,18 @@ export type AgentStreamEvent =
   | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
   | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
   | {
+      type: "mode_changed";
+      provider: AgentProvider;
+      currentModeId: string | null;
+      availableModes: AgentMode[];
+    }
+  | { type: "model_changed"; provider: AgentProvider; runtimeInfo: AgentRuntimeInfo }
+  | {
+      type: "thinking_option_changed";
+      provider: AgentProvider;
+      thinkingOptionId: string | null;
+    }
+  | {
       type: "turn_failed";
       provider: AgentProvider;
       error: string;
@@ -312,7 +338,12 @@ export type AgentStreamEvent =
     }
   | { type: "turn_canceled"; provider: AgentProvider; reason: string; turnId?: string }
   | { type: "timeline"; item: AgentTimelineItem; provider: AgentProvider; turnId?: string }
-  | { type: "permission_requested"; provider: AgentProvider; request: AgentPermissionRequest; turnId?: string }
+  | {
+      type: "permission_requested";
+      provider: AgentProvider;
+      request: AgentPermissionRequest;
+      turnId?: string;
+    }
   | {
       type: "permission_resolved";
       provider: AgentProvider;
@@ -331,15 +362,15 @@ export type AgentPermissionRequestKind = "tool" | "plan" | "question" | "mode" |
 
 export type AgentPermissionUpdate = AgentMetadata;
 
-export type AgentPermissionAction = {
+export interface AgentPermissionAction {
   id: string;
   label: string;
   behavior: "allow" | "deny";
   variant?: "primary" | "secondary" | "danger";
   intent?: "implement" | "implement_resume" | "dismiss";
-};
+}
 
-export type AgentPermissionRequest = {
+export interface AgentPermissionRequest {
   id: string;
   provider: AgentProvider;
   name: string;
@@ -351,7 +382,7 @@ export type AgentPermissionRequest = {
   suggestions?: AgentPermissionUpdate[];
   actions?: AgentPermissionAction[];
   metadata?: AgentMetadata;
-};
+}
 
 export type AgentPermissionResponse =
   | {
@@ -367,38 +398,38 @@ export type AgentPermissionResponse =
       interrupt?: boolean;
     };
 
-export type AgentRunResult = {
+export interface AgentRunResult {
   sessionId: string;
   finalText: string;
   usage?: AgentUsage;
   timeline: AgentTimelineItem[];
   canceled?: boolean;
-};
+}
 
-export type AgentRuntimeInfo = {
+export interface AgentRuntimeInfo {
   provider: AgentProvider;
   sessionId: string | null;
   model?: string | null;
   thinkingOptionId?: string | null;
   modeId?: string | null;
   extra?: AgentMetadata;
-};
+}
 
 /**
  * Represents a slash command available in an agent session.
  * Commands are executed by sending them as prompts with / prefix.
  */
-export type AgentSlashCommand = {
+export interface AgentSlashCommand {
   name: string;
   description: string;
   argumentHint: string;
-};
+}
 
-export type ListPersistedAgentsOptions = {
+export interface ListPersistedAgentsOptions {
   limit?: number;
-};
+}
 
-export type PersistedAgentDescriptor = {
+export interface PersistedAgentDescriptor {
   provider: AgentProvider;
   sessionId: string;
   cwd: string;
@@ -406,9 +437,9 @@ export type PersistedAgentDescriptor = {
   lastActivityAt: Date;
   persistence: AgentPersistenceHandle;
   timeline: AgentTimelineItem[];
-};
+}
 
-export type AgentSessionConfig = {
+export interface AgentSessionConfig {
   provider: AgentProvider;
   cwd: string;
   /**
@@ -435,10 +466,26 @@ export type AgentSessionConfig = {
    * They are used for ephemeral system tasks like commit/PR generation.
    */
   internal?: boolean;
-};
+}
 
 export interface AgentLaunchContext {
   env?: Record<string, string>;
+}
+
+export interface AgentCreateSessionOptions {
+  /**
+   * Whether the provider should leave a durable native session behind.
+   * Defaults to true. Providers that cannot honor false should no-op.
+   */
+  persistSession?: boolean;
+}
+
+/**
+ * Returned by respondToPermission when the permission resolution requires
+ * a follow-up turn (e.g. Codex plan approval → implementation).
+ */
+export interface AgentPermissionResult {
+  followUpPrompt?: AgentPromptInput;
 }
 
 export interface AgentSession {
@@ -455,7 +502,10 @@ export interface AgentSession {
   getCurrentMode(): Promise<string | null>;
   setMode(modeId: string): Promise<void>;
   getPendingPermissions(): AgentPermissionRequest[];
-  respondToPermission(requestId: string, response: AgentPermissionResponse): Promise<void>;
+  respondToPermission(
+    requestId: string,
+    response: AgentPermissionResponse,
+  ): Promise<AgentPermissionResult | void>;
   describePersistence(): AgentPersistenceHandle | null;
   interrupt(): Promise<void>;
   close(): Promise<void>;
@@ -466,11 +516,13 @@ export interface AgentSession {
 }
 
 export interface ListModelsOptions {
-  cwd?: string;
+  cwd: string;
+  force: boolean;
 }
 
 export interface ListModesOptions {
-  cwd?: string;
+  cwd: string;
+  force: boolean;
 }
 
 export interface AgentClient {
@@ -479,14 +531,15 @@ export interface AgentClient {
   createSession(
     config: AgentSessionConfig,
     launchContext?: AgentLaunchContext,
+    options?: AgentCreateSessionOptions,
   ): Promise<AgentSession>;
   resumeSession(
     handle: AgentPersistenceHandle,
     overrides?: Partial<AgentSessionConfig>,
     launchContext?: AgentLaunchContext,
   ): Promise<AgentSession>;
-  listModels(options?: ListModelsOptions): Promise<AgentModelDefinition[]>;
-  listModes?(options?: ListModesOptions): Promise<AgentMode[]>;
+  listModels(options: ListModelsOptions): Promise<AgentModelDefinition[]>;
+  listModes?(options: ListModesOptions): Promise<AgentMode[]>;
   listPersistedAgents?(options?: ListPersistedAgentsOptions): Promise<PersistedAgentDescriptor[]>;
   /**
    * Check if this provider is available (CLI binary is installed).

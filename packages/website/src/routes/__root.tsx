@@ -2,20 +2,41 @@ import type { ReactNode } from "react";
 import { createContext, useContext } from "react";
 import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { getLatestRelease } from "~/release";
+import { getStarCount } from "~/stars";
 
 interface ReleaseContext {
   version: string;
+  windowsX64Asset: string | null;
+  windowsArm64Asset: string | null;
 }
 
-const ReleaseCtx = createContext<ReleaseContext>({ version: "" });
+interface StarsContext {
+  stars: string;
+}
+
+const ReleaseCtx = createContext<ReleaseContext>({
+  version: "",
+  windowsX64Asset: null,
+  windowsArm64Asset: null,
+});
+const StarsCtx = createContext<StarsContext>({ stars: "" });
+
+const PLAUSIBLE_INIT_SCRIPT = {
+  __html: `window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init()`,
+};
 
 export function useRelease(): ReleaseContext {
   return useContext(ReleaseCtx);
 }
 
+export function useStars(): StarsContext {
+  return useContext(StarsCtx);
+}
+
 export const Route = createRootRoute({
   loader: async () => {
-    return getLatestRelease();
+    const [release, stars] = await Promise.all([getLatestRelease(), getStarCount()]);
+    return { ...release, ...stars };
   },
   head: () => ({
     meta: [
@@ -38,12 +59,14 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
-  const release = Route.useLoaderData();
+  const data = Route.useLoaderData();
   return (
-    <ReleaseCtx value={release}>
-      <RootDocument>
-        <Outlet />
-      </RootDocument>
+    <ReleaseCtx value={data}>
+      <StarsCtx value={data}>
+        <RootDocument>
+          <Outlet />
+        </RootDocument>
+      </StarsCtx>
     </ReleaseCtx>
   );
 }
@@ -54,11 +77,7 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
       <head>
         <HeadContent />
         <script async src="https://plausible.io/js/pa-cKNUoWbeH_Iksb2fh82s3.js" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init()`,
-          }}
-        />
+        <script dangerouslySetInnerHTML={PLAUSIBLE_INIT_SCRIPT} />
       </head>
       <body className="antialiased bg-background text-foreground">
         {children}

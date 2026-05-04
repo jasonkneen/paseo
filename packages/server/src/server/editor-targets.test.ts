@@ -1,11 +1,12 @@
+import type { ChildProcess } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { listAvailableEditorTargets, openInEditorTarget } from "./editor-targets.js";
 
 describe("editor-targets", () => {
-  it("lists available editors in deterministic order", () => {
-    const available = new Set(["code", "cursor", "explorer"]);
+  it("lists available editors in deterministic order", async () => {
+    const available = new Set(["code", "cursor", "explorer", "webstorm"]);
 
-    const editors = listAvailableEditorTargets({
+    const editors = await listAvailableEditorTargets({
       platform: "win32",
       findExecutable: (command) => (available.has(command) ? command : null),
     });
@@ -13,12 +14,13 @@ describe("editor-targets", () => {
     expect(editors).toEqual([
       { id: "cursor", label: "Cursor" },
       { id: "vscode", label: "VS Code" },
+      { id: "webstorm", label: "WebStorm" },
       { id: "explorer", label: "Explorer" },
     ]);
   });
 
-  it("returns Finder on macOS", () => {
-    const editors = listAvailableEditorTargets({
+  it("returns Finder on macOS", async () => {
+    const editors = await listAvailableEditorTargets({
       platform: "darwin",
       findExecutable: (command) => (command === "open" ? "/usr/bin/open" : null),
     });
@@ -26,8 +28,8 @@ describe("editor-targets", () => {
     expect(editors).toEqual([{ id: "finder", label: "Finder" }]);
   });
 
-  it("returns the generic file manager target on Linux", () => {
-    const editors = listAvailableEditorTargets({
+  it("returns the generic file manager target on Linux", async () => {
+    const editors = await listAvailableEditorTargets({
       platform: "linux",
       findExecutable: (command) => (command === "xdg-open" ? "/usr/bin/xdg-open" : null),
     });
@@ -44,7 +46,7 @@ describe("editor-targets", () => {
       return child;
     });
     const child = { once, unref };
-    const spawn = vi.fn(() => child as any);
+    const spawn = vi.fn(() => child as unknown as ChildProcess);
 
     await openInEditorTarget(
       {
@@ -61,6 +63,7 @@ describe("editor-targets", () => {
 
     expect(spawn).toHaveBeenCalledWith("/usr/local/bin/code", ["/tmp/repo"], {
       detached: true,
+      env: expect.any(Object),
       shell: false,
       stdio: "ignore",
     });
@@ -96,5 +99,20 @@ describe("editor-targets", () => {
         },
       ),
     ).rejects.toThrow("Editor target unavailable: Finder");
+  });
+
+  it("rejects unknown editor ids", async () => {
+    await expect(
+      openInEditorTarget(
+        {
+          editorId: "unknown-editor",
+          path: "/tmp/repo",
+        },
+        {
+          existsSync: () => true,
+          findExecutable: () => null,
+        },
+      ),
+    ).rejects.toThrow("Unknown editor target: unknown-editor");
   });
 });

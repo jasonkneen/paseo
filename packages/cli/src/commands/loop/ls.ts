@@ -1,11 +1,6 @@
 import { Command } from "commander";
 import { connectToDaemon, getDaemonHost } from "../../utils/client.js";
-import type {
-  CommandOptions,
-  CommandError,
-  OutputSchema,
-  ListResult,
-} from "../../output/index.js";
+import type { CommandOptions, CommandError, OutputSchema, ListResult } from "../../output/index.js";
 import type { LoopDaemonClient, LoopListItem } from "./types.js";
 
 interface LoopListRow {
@@ -52,11 +47,11 @@ export async function runLoopLsCommand(
   options: LoopLsOptions,
   _command: Command,
 ): Promise<LoopLsResult> {
-  const host = getDaemonHost({ host: options.host as string | undefined });
+  const host = getDaemonHost({ host: options.host });
   let client;
   try {
     client = (await connectToDaemon({
-      host: options.host as string | undefined,
+      host: options.host,
     })) as unknown as LoopDaemonClient;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

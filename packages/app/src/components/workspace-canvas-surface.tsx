@@ -1,9 +1,22 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Ellipsis, Grid3x3, Group, Maximize2, Minus, Plus, Search, Ungroup, X } from "lucide-react-native";
+import {
+  Ellipsis,
+  Grid3x3,
+  Group,
+  Maximize2,
+  Minus,
+  Plus,
+  Search,
+  Ungroup,
+  X,
+} from "lucide-react-native";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
-import { WorkspacePaneContent, type WorkspacePaneContentModel } from "@/screens/workspace/workspace-pane-content";
+import {
+  WorkspacePaneContent,
+  type WorkspacePaneContentModel,
+} from "@/screens/workspace/workspace-pane-content";
 import { WorkspaceActionsMenu } from "@/screens/workspace/workspace-actions-menu";
 import {
   WorkspaceTabPresentationResolver,
@@ -83,10 +96,10 @@ interface WorkspaceCanvasSurfaceProps {
   activeTabId: string | null;
   normalizedServerId: string;
   normalizedWorkspaceId: string;
+  isWorkspaceFocused: boolean;
   buildPaneContentModel: (input: {
     tab: WorkspaceTabDescriptor;
     paneId: string;
-    isPaneFocused: boolean;
   }) => WorkspacePaneContentModel;
   onCloseTab: (tabId: string) => void;
   onCreateAgent: () => void;
@@ -138,7 +151,11 @@ function SelectionToolbar({
 }: {
   selectedTabIds: string[];
   groups: CanvasGroup[];
-  theme: { colors: Record<string, any>; borderRadius: Record<string, any>; borderWidth: Record<string, any> };
+  theme: {
+    colors: Record<string, any>;
+    borderRadius: Record<string, any>;
+    borderWidth: Record<string, any>;
+  };
   onGroup: (tabIds: string[]) => void;
   onUngroup: (groupId: string) => void;
   onClear: () => void;
@@ -258,7 +275,6 @@ const selToolbarStyles = StyleSheet.create((theme) => ({
   },
 }));
 
-
 function buildDefaultPanelPosition(index: number): CanvasPanelPosition {
   return {
     x: snapToGrid(48 + (index % 4) * PANEL_CASCADE_X),
@@ -274,6 +290,7 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
   activeTabId,
   normalizedServerId,
   normalizedWorkspaceId,
+  isWorkspaceFocused,
   buildPaneContentModel,
   onCloseTab,
   onCreateAgent,
@@ -295,12 +312,20 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
   const [canvasOffset, setCanvasOffset] = useState(
     () => initialCanvasStateRef.current?.canvasOffset ?? { x: 0, y: 0 },
   );
-  const [cameraZoom, setCameraZoom] = useState(() => initialCanvasStateRef.current?.cameraZoom ?? 1);
-  const [canvasScale, setCanvasScale] = useState(() => initialCanvasStateRef.current?.canvasScale ?? 1);
+  const [cameraZoom, setCameraZoom] = useState(
+    () => initialCanvasStateRef.current?.cameraZoom ?? 1,
+  );
+  const [canvasScale, setCanvasScale] = useState(
+    () => initialCanvasStateRef.current?.canvasScale ?? 1,
+  );
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
-  const [snapEnabled, setSnapEnabled] = useState(() => initialCanvasStateRef.current?.snapEnabled ?? true);
-  const [groups, setGroups] = useState<CanvasGroup[]>(() => initialCanvasStateRef.current?.groups ?? []);
+  const [snapEnabled, setSnapEnabled] = useState(
+    () => initialCanvasStateRef.current?.snapEnabled ?? true,
+  );
+  const [groups, setGroups] = useState<CanvasGroup[]>(
+    () => initialCanvasStateRef.current?.groups ?? [],
+  );
   const [selectedTabIds, setSelectedTabIds] = useState<string[]>([]);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingGroupLabel, setEditingGroupLabel] = useState("");
@@ -324,7 +349,8 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
   const nextZIndexRef = useRef(1);
 
   useEffect(() => {
-    const latestCachedState = workspaceCanvasStateCache.get(workspaceCanvasKey) ?? initialCanvasStateRef.current;
+    const latestCachedState =
+      workspaceCanvasStateCache.get(workspaceCanvasKey) ?? initialCanvasStateRef.current;
     setPanelPositions((current) => {
       const next: Record<string, CanvasPanelPosition> = {};
       let changed = false;
@@ -366,7 +392,15 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
       return;
     }
     void AsyncStorage.setItem(buildCanvasStorageKey(workspaceCanvasKey), JSON.stringify(nextState));
-  }, [cameraZoom, canvasOffset, canvasScale, groups, panelPositions, snapEnabled, workspaceCanvasKey]);
+  }, [
+    cameraZoom,
+    canvasOffset,
+    canvasScale,
+    groups,
+    panelPositions,
+    snapEnabled,
+    workspaceCanvasKey,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -435,7 +469,12 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
       if (event.code === "Space") {
         const target = event.target as HTMLElement | null;
         const tag = target?.tagName;
-        if (target?.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+        if (
+          target?.isContentEditable ||
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT"
+        ) {
           return;
         }
         setSpacePressed(true);
@@ -547,8 +586,14 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
             ...current,
             [dragState.tabId]: {
               ...panel,
-              width: Math.max(MIN_PANEL_WIDTH, maybeSnapToGrid(dragState.originWidth + worldDx, snapEnabled)),
-              height: Math.max(MIN_PANEL_HEIGHT, maybeSnapToGrid(dragState.originHeight + worldDy, snapEnabled)),
+              width: Math.max(
+                MIN_PANEL_WIDTH,
+                maybeSnapToGrid(dragState.originWidth + worldDx, snapEnabled),
+              ),
+              height: Math.max(
+                MIN_PANEL_HEIGHT,
+                maybeSnapToGrid(dragState.originHeight + worldDy, snapEnabled),
+              ),
             },
           };
         });
@@ -624,13 +669,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
     };
   }, [cameraZoom, canvasOffset, canvasScale, dragState, panelPositions, snapEnabled]);
 
-
   const canvasContentModelsRef = useRef(new Map<string, WorkspacePaneContentModel>());
   const canvasContentModels = useMemo(() => {
     const prev = canvasContentModelsRef.current;
     const next = new Map<string, WorkspacePaneContentModel>();
-    const tabIds = new Set(tabs.map((tab) => tab.tabId));
-
     // Reuse existing models for tabs that haven't changed
     tabs.forEach((tab) => {
       const existing = prev.get(tab.tabId);
@@ -642,7 +684,6 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
           buildPaneContentModel({
             tab,
             paneId: `canvas:${tab.tabId}`,
-            isPaneFocused: true,
           }),
         );
       }
@@ -879,7 +920,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
               }}
             >
               <View
-                style={[styles.groupLabelRow, { transform: [{ scale: 1 / (canvasScale * cameraZoom) }] }]}
+                style={[
+                  styles.groupLabelRow,
+                  { transform: [{ scale: 1 / (canvasScale * cameraZoom) }] },
+                ]}
                 onPointerDown={(e) => e.stopPropagation()}
               >
                 <Group size={11} color={String(theme.colors.accent)} />
@@ -890,7 +934,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
                     onChangeText={setEditingGroupLabel}
                     onSubmitEditing={commitGroupLabel}
                     onBlur={commitGroupLabel}
-                    style={[styles.groupLabelInput, { color: String(theme.colors.accent), outlineStyle: "none" } as any]}
+                    style={[
+                      styles.groupLabelInput,
+                      { color: String(theme.colors.accent), outlineStyle: "none" } as any,
+                    ]}
                     selectTextOnFocus
                   />
                 ) : (
@@ -949,104 +996,112 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
                 setSelectedTabIds([tab.tabId]);
               }}
             >
-            <View
-              style={styles.panelHeader}
-              onPointerDown={(event) => {
-                if (spacePressed || event.nativeEvent.button === 2) {
-                  return;
-                }
-                event.stopPropagation();
-                bringPanelToFront(tab.tabId);
-                setDragState({
-                  type: "panel",
-                  tabId: tab.tabId,
-                  pointerId: event.nativeEvent.pointerId,
-                  originX: panel.x,
-                  originY: panel.y,
-                  startX: event.nativeEvent.clientX,
-                  startY: event.nativeEvent.clientY,
-                });
-              }}
-            >
-              <WorkspaceTabPresentationResolver
-                tab={tab}
-                serverId={normalizedServerId}
-                workspaceId={normalizedWorkspaceId}
+              <View
+                style={styles.panelHeader}
+                onPointerDown={(event) => {
+                  if (spacePressed || event.nativeEvent.button === 2) {
+                    return;
+                  }
+                  event.stopPropagation();
+                  bringPanelToFront(tab.tabId);
+                  setDragState({
+                    type: "panel",
+                    tabId: tab.tabId,
+                    pointerId: event.nativeEvent.pointerId,
+                    originX: panel.x,
+                    originY: panel.y,
+                    startX: event.nativeEvent.clientX,
+                    startY: event.nativeEvent.clientY,
+                  });
+                }}
               >
-                {(presentation) => (
-                  <>
-                    <View style={styles.panelTitleRow}>
-                      <View style={styles.panelIconWrap}>
-                        <WorkspaceTabIcon presentation={presentation} active={activeTabId === tab.tabId} />
+                <WorkspaceTabPresentationResolver
+                  tab={tab}
+                  serverId={normalizedServerId}
+                  workspaceId={normalizedWorkspaceId}
+                >
+                  {(presentation) => (
+                    <>
+                      <View style={styles.panelTitleRow}>
+                        <View style={styles.panelIconWrap}>
+                          <WorkspaceTabIcon
+                            presentation={presentation}
+                            active={activeTabId === tab.tabId}
+                          />
+                        </View>
+                        <View style={styles.panelTitleTextWrap}>
+                          <Text numberOfLines={1} style={styles.panelTitle}>
+                            {presentation.titleState === "loading"
+                              ? "Loading..."
+                              : presentation.label}
+                          </Text>
+                          <Text numberOfLines={1} style={styles.panelSubtitle}>
+                            {presentation.subtitle}
+                          </Text>
+                        </View>
                       </View>
-                      <View style={styles.panelTitleTextWrap}>
-                        <Text numberOfLines={1} style={styles.panelTitle}>
-                          {presentation.titleState === "loading" ? "Loading..." : presentation.label}
-                        </Text>
-                        <Text numberOfLines={1} style={styles.panelSubtitle}>
-                          {presentation.subtitle}
-                        </Text>
-                      </View>
-                    </View>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Close panel"
-                      hitSlop={8}
-                      onPress={() => onCloseTab(tab.tabId)}
-                      style={({ hovered, pressed }) => [
-                        styles.closeButton,
-                        (hovered || pressed) && styles.closeButtonHovered,
-                      ]}
-                    >
-                      <Text style={styles.closeButtonText}>×</Text>
-                    </Pressable>
-                  </>
-                )}
-              </WorkspaceTabPresentationResolver>
-            </View>
-            <View style={styles.panelBody} pointerEvents={dragState ? "none" : "auto"}>
-              <WorkspacePaneContent content={model} />
-            </View>
-            <View
-              style={[styles.resizeHandle, { cursor: "nwse-resize" } as any]}
-              onPointerDown={(event) => {
-                if (spacePressed || event.nativeEvent.button === 2) {
-                  return;
-                }
-                event.stopPropagation();
-                bringPanelToFront(tab.tabId);
-                setDragState({
-                  type: "resize",
-                  tabId: tab.tabId,
-                  pointerId: event.nativeEvent.pointerId,
-                  originWidth: panel.width,
-                  originHeight: panel.height,
-                  startX: event.nativeEvent.clientX,
-                  startY: event.nativeEvent.clientY,
-                });
-              }}
-            >
-              <View style={styles.resizeHandleGrip} />
-            </View>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Close panel"
+                        hitSlop={8}
+                        onPress={() => onCloseTab(tab.tabId)}
+                        style={({ hovered, pressed }) => [
+                          styles.closeButton,
+                          (hovered || pressed) && styles.closeButtonHovered,
+                        ]}
+                      >
+                        <Text style={styles.closeButtonText}>×</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </WorkspaceTabPresentationResolver>
+              </View>
+              <View style={styles.panelBody} pointerEvents={dragState ? "none" : "auto"}>
+                <WorkspacePaneContent
+                  content={model}
+                  isWorkspaceFocused={isWorkspaceFocused}
+                  isPaneFocused={activeTabId == null || activeTabId === tab.tabId}
+                  onFocusPane={() => bringPanelToFront(tab.tabId)}
+                />
+              </View>
+              <View
+                style={[styles.resizeHandle, { cursor: "nwse-resize" } as any]}
+                onPointerDown={(event) => {
+                  if (spacePressed || event.nativeEvent.button === 2) {
+                    return;
+                  }
+                  event.stopPropagation();
+                  bringPanelToFront(tab.tabId);
+                  setDragState({
+                    type: "resize",
+                    tabId: tab.tabId,
+                    pointerId: event.nativeEvent.pointerId,
+                    originWidth: panel.width,
+                    originHeight: panel.height,
+                    startX: event.nativeEvent.clientX,
+                    startY: event.nativeEvent.clientY,
+                  });
+                }}
+              >
+                <View style={styles.resizeHandleGrip} />
+              </View>
             </View>
           );
         })}
       </View>
-      {dragState?.type === "select" && (() => {
-        const sx = Math.min(dragState.startX, dragState.currentX);
-        const sy = Math.min(dragState.startY, dragState.currentY);
-        const sw = Math.abs(dragState.currentX - dragState.startX);
-        const sh = Math.abs(dragState.currentY - dragState.startY);
-        return sw > 4 || sh > 4 ? (
-          <View
-            pointerEvents="none"
-            style={[
-              styles.selectionRect,
-              { left: sx, top: sy, width: sw, height: sh },
-            ]}
-          />
-        ) : null;
-      })()}
+      {dragState?.type === "select" &&
+        (() => {
+          const sx = Math.min(dragState.startX, dragState.currentX);
+          const sy = Math.min(dragState.startY, dragState.currentY);
+          const sw = Math.abs(dragState.currentX - dragState.startX);
+          const sh = Math.abs(dragState.currentY - dragState.startY);
+          return sw > 4 || sh > 4 ? (
+            <View
+              pointerEvents="none"
+              style={[styles.selectionRect, { left: sx, top: sy, width: sw, height: sh }]}
+            />
+          ) : null;
+        })()}
       {selectedTabIds.length >= 2 && !dragState ? (
         <SelectionToolbar
           selectedTabIds={selectedTabIds}
@@ -1105,7 +1160,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
             accessibilityRole="button"
             accessibilityLabel="Zoom out"
             onPress={() => updateCameraZoom(cameraZoom - ZOOM_STEP)}
-            style={({ hovered, pressed }) => [styles.zoomButton, (hovered || pressed) && styles.zoomButtonHovered]}
+            style={({ hovered, pressed }) => [
+              styles.zoomButton,
+              (hovered || pressed) && styles.zoomButtonHovered,
+            ]}
           >
             <Minus size={12} color={theme.colors.foreground} />
           </Pressable>
@@ -1113,7 +1171,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
             accessibilityRole="button"
             accessibilityLabel="Reset zoom to one hundred percent"
             onPress={() => updateCameraZoom(1)}
-            style={({ hovered, pressed }) => [styles.zoomReadout, (hovered || pressed) && styles.zoomButtonHovered]}
+            style={({ hovered, pressed }) => [
+              styles.zoomReadout,
+              (hovered || pressed) && styles.zoomButtonHovered,
+            ]}
           >
             <Text style={styles.zoomReadoutText}>{cameraZoomPercent}%</Text>
           </Pressable>
@@ -1121,7 +1182,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
             accessibilityRole="button"
             accessibilityLabel="Zoom in"
             onPress={() => updateCameraZoom(cameraZoom + ZOOM_STEP)}
-            style={({ hovered, pressed }) => [styles.zoomButton, (hovered || pressed) && styles.zoomButtonHovered]}
+            style={({ hovered, pressed }) => [
+              styles.zoomButton,
+              (hovered || pressed) && styles.zoomButtonHovered,
+            ]}
           >
             <Plus size={12} color={theme.colors.foreground} />
           </Pressable>
@@ -1133,7 +1197,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
             accessibilityRole="button"
             accessibilityLabel="Scale out"
             onPress={() => updateCanvasScale(canvasScale - ZOOM_STEP)}
-            style={({ hovered, pressed }) => [styles.zoomButton, (hovered || pressed) && styles.zoomButtonHovered]}
+            style={({ hovered, pressed }) => [
+              styles.zoomButton,
+              (hovered || pressed) && styles.zoomButtonHovered,
+            ]}
           >
             <Minus size={12} color={theme.colors.foreground} />
           </Pressable>
@@ -1141,7 +1208,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
             accessibilityRole="button"
             accessibilityLabel="Reset canvas scale to one hundred percent"
             onPress={() => updateCanvasScale(1)}
-            style={({ hovered, pressed }) => [styles.zoomReadout, (hovered || pressed) && styles.zoomButtonHovered]}
+            style={({ hovered, pressed }) => [
+              styles.zoomReadout,
+              (hovered || pressed) && styles.zoomButtonHovered,
+            ]}
           >
             <Text style={styles.zoomReadoutText}>{canvasScalePercent}%</Text>
           </Pressable>
@@ -1149,7 +1219,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
             accessibilityRole="button"
             accessibilityLabel="Scale in"
             onPress={() => updateCanvasScale(canvasScale + ZOOM_STEP)}
-            style={({ hovered, pressed }) => [styles.zoomButton, (hovered || pressed) && styles.zoomButtonHovered]}
+            style={({ hovered, pressed }) => [
+              styles.zoomButton,
+              (hovered || pressed) && styles.zoomButtonHovered,
+            ]}
           >
             <Plus size={12} color={theme.colors.foreground} />
           </Pressable>
@@ -1166,7 +1239,10 @@ export const WorkspaceCanvasSurface = memo(function WorkspaceCanvasSurface({
             (hovered || pressed) && styles.zoomButtonHovered,
           ]}
         >
-          <Grid3x3 size={12} color={snapEnabled ? theme.colors.foreground : theme.colors.foregroundMuted} />
+          <Grid3x3
+            size={12}
+            color={snapEnabled ? theme.colors.foreground : theme.colors.foregroundMuted}
+          />
         </Pressable>
       </View>
     </View>

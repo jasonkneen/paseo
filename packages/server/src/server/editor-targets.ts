@@ -1,34 +1,37 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { posix, win32 } from "node:path";
-import type { EditorTargetDescriptorPayload, EditorTargetId } from "../shared/messages.js";
-import {
-  findExecutable,
-  quoteWindowsArgument,
-  quoteWindowsCommand,
-} from "../utils/executable.js";
+import type {
+  EditorTargetDescriptorPayload,
+  EditorTargetId,
+  KnownEditorTargetId,
+} from "../shared/messages.js";
+import { createExternalProcessEnv } from "./paseo-env.js";
+import { findExecutable } from "../utils/executable.js";
+import { spawnProcess } from "../utils/spawn.js";
 
-type EditorTargetDefinition = {
-  id: EditorTargetId;
+interface EditorTargetDefinition {
+  id: KnownEditorTargetId;
   label: string;
   command: string;
   platforms?: readonly NodeJS.Platform[];
   excludedPlatforms?: readonly NodeJS.Platform[];
-};
+}
 
-type ListAvailableEditorTargetsDependencies = {
+interface ListAvailableEditorTargetsDependencies {
   platform?: NodeJS.Platform;
-  findExecutable?: (command: string) => string | null;
-};
+  findExecutable?: (command: string) => string | null | Promise<string | null>;
+}
 
 type OpenInEditorTargetDependencies = ListAvailableEditorTargetsDependencies & {
   existsSync?: typeof existsSync;
-  spawn?: typeof spawn;
+  spawn?: typeof spawnProcess;
 };
 
 const EDITOR_TARGETS: readonly EditorTargetDefinition[] = [
   { id: "cursor", label: "Cursor", command: "cursor" },
   { id: "vscode", label: "VS Code", command: "code" },
+  { id: "webstorm", label: "WebStorm", command: "webstorm" },
   { id: "zed", label: "Zed", command: "zed" },
   { id: "finder", label: "Finder", command: "open", platforms: ["darwin"] },
   { id: "explorer", label: "Explorer", command: "explorer", platforms: ["win32"] },
@@ -65,46 +68,46 @@ function resolveEditorTargetDefinition(editorId: EditorTargetId): EditorTargetDe
   return target;
 }
 
-export function listAvailableEditorTargets(
+export async function listAvailableEditorTargets(
   dependencies: ListAvailableEditorTargetsDependencies = {},
-): EditorTargetDescriptorPayload[] {
+): Promise<EditorTargetDescriptorPayload[]> {
   const platform = dependencies.platform ?? process.platform;
   const findExecutableFn = dependencies.findExecutable ?? findExecutable;
 
-  return EDITOR_TARGETS.flatMap((target) => {
-    if (!isTargetSupportedOnPlatform(target, platform)) {
-      return [];
-    }
-    const executable = findExecutableFn(target.command);
-    if (!executable) {
-      return [];
-    }
-
-    return [
-      {
-        id: target.id,
-        label: target.label,
-      },
-    ];
-  });
+  const supportedTargets = EDITOR_TARGETS.filter((target) =>
+    isTargetSupportedOnPlatform(target, platform),
+  );
+  const executables = await Promise.all(
+    supportedTargets.map((target) => findExecutableFn(target.command)),
+  );
+  const results: EditorTargetDescriptorPayload[] = [];
+  for (let i = 0; i < supportedTargets.length; i += 1) {
+    if (!executables[i]) continue;
+    const target = supportedTargets[i];
+    results.push({
+      id: target.id,
+      label: target.label,
+    });
+  }
+  return results;
 }
 
-type Launch = {
+interface Launch {
   command: string;
   args: string[];
-};
+}
 
-function resolveEditorLaunch(input: {
+async function resolveEditorLaunch(input: {
   editorId: EditorTargetId;
   path: string;
   platform: NodeJS.Platform;
-  findExecutableFn: typeof findExecutable;
-}): Launch {
+  findExecutableFn: (command: string) => string | null | Promise<string | null>;
+}): Promise<Launch> {
   const target = resolveEditorTargetDefinition(input.editorId);
   if (!isTargetSupportedOnPlatform(target, input.platform)) {
     throw new Error(`Editor target unavailable: ${target.label}`);
   }
-  const executable = input.findExecutableFn(target.command);
+  const executable = await input.findExecutableFn(target.command);
   if (!executable) {
     throw new Error(`Editor target unavailable: ${target.label}`);
   }
@@ -126,7 +129,7 @@ export async function openInEditorTarget(
   const pathToOpen = input.path.trim();
   const existsSyncFn = dependencies.existsSync ?? existsSync;
   const findExecutableFn = dependencies.findExecutable ?? findExecutable;
-  const spawnFn = dependencies.spawn ?? spawn;
+  const spawnFn = dependencies.spawn ?? spawnProcess;
 
   if (!pathToOpen || !isAbsolutePath(pathToOpen)) {
     throw new Error("Editor target path must be an absolute local path");
@@ -135,22 +138,19 @@ export async function openInEditorTarget(
     throw new Error(`Path does not exist: ${pathToOpen}`);
   }
 
-  const launch = resolveEditorLaunch({
+  const launch = await resolveEditorLaunch({
     editorId: input.editorId,
     path: pathToOpen,
     platform,
     findExecutableFn,
   });
 
-  const command = platform === "win32" ? quoteWindowsCommand(launch.command) : launch.command;
-  const args =
-    platform === "win32" ? launch.args.map((argument) => quoteWindowsArgument(argument)) : launch.args;
-
   await new Promise<void>((resolve, reject) => {
     let child: ChildProcess;
     try {
-      child = spawnFn(command, args, {
+      child = spawnFn(launch.command, launch.args, {
         detached: true,
+        env: createExternalProcessEnv(process.env),
         shell: platform === "win32",
         stdio: "ignore",
       });

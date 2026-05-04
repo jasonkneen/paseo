@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, test, vi } from "vitest";
 import {
   createEncryptedTransport,
@@ -74,6 +75,27 @@ describe("daemon-client transport helpers", () => {
     expect(close).toHaveBeenCalledWith(1000, "bye");
   });
 
+  test("createWebSocketTransportFactory passes WebSocket protocols to the socket factory", () => {
+    const socketFactory = vi.fn(() => ({
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+
+    createWebSocketTransportFactory(socketFactory)({
+      url: "ws://example.test",
+      headers: { Authorization: "Bearer shared-secret" },
+      protocols: ["paseo.bearer.shared-secret"],
+    });
+
+    expect(socketFactory).toHaveBeenCalledWith("ws://example.test", {
+      headers: { Authorization: "Bearer shared-secret" },
+      protocols: ["paseo.bearer.shared-secret"],
+    });
+  });
+
   test("createWebSocketTransportFactory rejects sends when socket is not open", () => {
     const factory = createWebSocketTransportFactory(() => ({
       readyState: 3,
@@ -88,12 +110,12 @@ describe("daemon-client transport helpers", () => {
   });
 
   test("createWebSocketTransportFactory binds and unbinds event listeners", () => {
-    const listeners = new Map<string, (...args: any[]) => void>();
+    const listeners = new Map<string, (...args: unknown[]) => void>();
     const ws = {
       readyState: 1,
       send: vi.fn(),
       close: vi.fn(),
-      addEventListener: vi.fn((event: string, handler: (...args: any[]) => void) => {
+      addEventListener: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
         listeners.set(event, handler);
       }),
       removeEventListener: vi.fn((event: string) => {
@@ -112,6 +134,22 @@ describe("daemon-client transport helpers", () => {
 
     unsubscribe();
     expect(ws.removeEventListener).toHaveBeenCalledWith("message", expect.any(Function));
+  });
+
+  test("createWebSocketTransportFactory suppresses close-before-open ws errors", () => {
+    class MockNodeWebSocket extends EventEmitter {
+      readyState = 0;
+      send = vi.fn();
+      close = vi.fn((code?: number, reason?: string) => {
+        this.emit("error", new Error("WebSocket was closed before the connection was established"));
+        this.emit("close", { code, reason });
+      });
+    }
+
+    const ws = new MockNodeWebSocket();
+    const transport = createWebSocketTransportFactory(() => ws)({ url: "ws://example.test" });
+
+    expect(() => transport.close(1001, "Connection timed out")).not.toThrow();
   });
 
   test("describeTransportClose prefers reason, then message, then code", () => {
